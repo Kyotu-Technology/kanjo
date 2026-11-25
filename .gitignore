@@ -1,0 +1,12 @@
+/target
+/web/node_modules
+/web/dist
+/web/.svelte-kit
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+/.idea
+/.vscode
+/.grok-imagine
