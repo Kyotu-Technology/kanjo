@@ -1,0 +1,179 @@
+name: CI
+
+# Runs on pull requests (including forks) and on main. The workflow references no
+# secrets, and pull_request (never pull_request_target) gives fork PRs a
+# read-only token, so untrusted code never sees credentials.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: short
+  NODE_VERSION: "24"
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt && rustup default stable
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+      - name: Stub the embedded UI
+        run: scripts/ci-web-stub.sh
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - name: Keep line endings as committed
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Use Strawberry Perl for the vendored OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/ci-windows-perl.ps1
+      - name: Stub the embedded UI
+        shell: bash
+        run: scripts/ci-web-stub.sh
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --workspace --locked
+
+  web:
+    name: Web UI
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 3
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny --color always check advisories bans licenses sources
+
+  audit:
+    name: cargo-audit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
+        with:
+          tool: cargo-audit@0.23.0
+      - run: cargo audit
+
+  egress:
+    name: Zero-egress test
+    needs: web
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --locked -p kanjo
+      - name: Install strace and allow unprivileged network namespaces
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends strace
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Run the egress test
+        env:
+          EGRESS_REQUIRE: "1"
+          EGRESS_SECONDS: "15"
+        run: scripts/egress-test.sh target/debug/kanjo

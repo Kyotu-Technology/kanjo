@@ -1,0 +1,161 @@
+/*
+  Kanjo design tokens. Light values live on :root; dark values are their own
+  selected steps, applied by data-theme="dark". The theme store (and the inline
+  script in index.html, before first paint) resolves "system" to light or dark,
+  so there is exactly one place for each value.
+*/
+:root {
+  color-scheme: light;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Noto Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Noto Sans Mono', Menlo, Consolas, monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.9375rem;
+  --fs-md: 1.0625rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 1.875rem;
+  --fs-3xl: clamp(1.625rem, 1.2rem + 1.6vw, 2.375rem);
+  --fs-hero: clamp(2.5rem, 1.9rem + 2.4vw, 3.5rem);
+  --lh-tight: 1.15;
+  --lh-snug: 1.3;
+  --lh-body: 1.5;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --tracking-tight: -0.015em;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 56px;
+  --sp-10: 72px;
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  --paper: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --surface-3: #e9edf3;
+  --ink: #172031;
+  --ink-2: #435066;
+  --ink-3: #5c687c;
+  --ink-inverse: #ffffff;
+  --line: #e1e5ec;
+  --line-strong: #c3cad6;
+  --control-border: #8792a5;
+  --accent: #2c48a8;
+  --accent-hover: #233b8c;
+  --accent-soft: #e6ebf8;
+  --accent-ink: #ffffff;
+  --focus: #2c48a8;
+
+  --good: #0aac23;
+  --warning: #fbb315;
+  --serious: #f18a59;
+  --critical: #dc3c3d;
+  --good-ink: #0b6b1d;
+  --warning-ink: #7a5200;
+  --serious-ink: #a8431a;
+  --critical-ink: #b3261e;
+  --good-soft: #e5f5e8;
+  --warning-soft: #fdf3d9;
+  --serious-soft: #fdebe2;
+  --critical-soft: #fbe5e5;
+
+  --series-1: #257de0;
+  --series-2: #f47230;
+  --series-3: #00b894;
+  --series-4: #f2a600;
+  --series-5: #ee7fac;
+  --series-6: #008a17;
+  --series-other: #9aa3b2;
+
+  --seq-0: #f1f4f8;
+  --seq-1: #cce3fd;
+  --seq-2: #9dc8f7;
+  --seq-3: #6aabf1;
+  --seq-4: #338ced;
+  --seq-5: #2370cd;
+  --seq-6: #0f4a96;
+
+  --meter-track: #dfe6f3;
+  --meter-fill: #2c48a8;
+
+  --grid: #e7eaf0;
+  --axis: #c2c8d2;
+
+  --shadow-overlay: 0 1px 2px rgba(16, 24, 40, 0.06), 0 12px 32px -8px rgba(16, 24, 40, 0.22);
+  --shadow-raise: 0 1px 2px rgba(16, 24, 40, 0.07);
+  --scrim: rgba(15, 20, 30, 0.42);
+
+  --sidebar-w: 248px;
+  --content-max: 1360px;
+  --topbar-h: 60px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #0d121b;
+  --surface: #151b27;
+  --surface-2: #1b2231;
+  --surface-3: #232c3d;
+  --ink: #e7ebf2;
+  --ink-2: #b2bccb;
+  --ink-3: #8f9aae;
+  --ink-inverse: #0d121b;
+  --line: #252e3e;
+  --line-strong: #3a4558;
+  --control-border: #64718a;
+  --accent: #8fa6ff;
+  --accent-hover: #aebfff;
+  --accent-soft: #1e2847;
+  --accent-ink: #0d121b;
+  --focus: #8fa6ff;
+  --good-ink: #5fcf6b;
+  --warning-ink: #f6c453;
+  --serious-ink: #f4a17a;
+  --critical-ink: #f08a8a;
+  --good-soft: #15301d;
+  --warning-soft: #33280e;
+  --serious-soft: #3a2218;
+  --critical-soft: #3b1a1c;
+  --series-1: #338ced;
+  --series-2: #e76624;
+  --series-3: #00a888;
+  --series-4: #d28e05;
+  --series-5: #e24d8b;
+  --series-6: #0aac23;
+  --series-other: #6b7487;
+  --seq-0: #1b2231;
+  --seq-1: #1a3157;
+  --seq-2: #1b4c8e;
+  --seq-3: #1b64be;
+  --seq-4: #338ced;
+  --seq-5: #6aabf1;
+  --seq-6: #b6d5f8;
+  --meter-track: #243151;
+  --meter-fill: #8fa6ff;
+  --grid: #222b3a;
+  --axis: #3c4659;
+  --shadow-overlay: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  --shadow-raise: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --scrim: rgba(0, 0, 0, 0.6);
+}
+

@@ -2,6 +2,7 @@
 /web/node_modules
 /web/dist
 /web/.svelte-kit
+/web/screenshots
 *.db
 *.db-wal
 *.db-shm
