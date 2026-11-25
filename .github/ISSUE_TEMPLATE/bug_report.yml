@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in Kanjo does not work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Kanjo reads your Claude Code transcripts, so please keep your own data out of the issue: replace project names, paths, account ids and e-mail addresses with invented ones, and never paste prompt or response text. Security problems go to a private advisory instead (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Kanjo version
+      description: Output of `kanjo --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Ideally with `kanjo demo`, which uses synthetic data only.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `kanjo doctor`
+      description: Review it before pasting and redact paths or names you do not want to publish.
+      render: text

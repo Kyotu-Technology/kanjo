@@ -1,0 +1,104 @@
+# cargo-deny policy for Kanjo. Validated with cargo-deny 0.20.2 (the version CI pins).
+# Run locally with: cargo deny check
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licences only. Anything else needs a maintainer decision recorded here.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+
+# option-ext (pulled in by directories -> dirs-sys) is MPL-2.0, a file-level copyleft.
+# It is used unmodified and its source is public on crates.io, which satisfies MPL-2.0
+# for a binary distribution. Allowed for this crate only; no other MPL code.
+[[licenses.exceptions]]
+crate = "option-ext"
+allow = ["MPL-2.0"]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+# The "no outbound traffic" guarantee (CLAUDE.md rule 2) starts here: no HTTP,
+# SMTP, DNS or update client may enter the dependency tree, so the binary has no
+# code path that dials out on its own. This list bans client stacks only. The
+# async runtime and std still contain socket APIs (the server needs them to
+# listen on loopback), so the runtime half of the guarantee is checked by
+# scripts/egress-test.sh, which traces every connect() of the real binary.
+deny = [
+    { name = "reqwest", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "ureq", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "isahc", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "surf", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "attohttpc", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "minreq", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "http-client", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "awc", reason = "HTTP client; Kanjo makes no outbound requests" },
+    { name = "curl", reason = "libcurl bindings; Kanjo makes no outbound requests" },
+    { name = "curl-sys", reason = "libcurl bindings; Kanjo makes no outbound requests" },
+    { name = "hyper-tls", reason = "TLS connector for HTTP clients" },
+    { name = "hyper-rustls", reason = "TLS connector for HTTP clients" },
+    { name = "hyper-openssl", reason = "TLS connector for HTTP clients" },
+    { name = "native-tls", reason = "client TLS stack; the vendored OpenSSL is only there for SQLCipher" },
+    { name = "tokio-native-tls", reason = "client TLS stack" },
+    { name = "hickory-resolver", reason = "DNS client; Kanjo never resolves remote names" },
+    { name = "trust-dns-resolver", reason = "DNS client; Kanjo never resolves remote names" },
+    { name = "lettre", reason = "SMTP client; notifications are local only" },
+    { name = "opentelemetry-otlp", reason = "telemetry exporter; Kanjo sends no telemetry" },
+    { name = "sentry", reason = "crash reporting client; Kanjo sends no telemetry" },
+    { name = "self_update", reason = "update checks are not allowed" },
+    { name = "update-informer", reason = "update checks are not allowed" },
+]
+
+# hyper and hyper-util are allowed for the loopback server, but not their client halves.
+[[bans.features]]
+crate = "hyper"
+deny = ["client", "full"]
+
+[[bans.features]]
+crate = "hyper-util"
+deny = [
+    "client",
+    "client-legacy",
+    "client-pool",
+    "client-proxy",
+    "client-proxy-system",
+    "full",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

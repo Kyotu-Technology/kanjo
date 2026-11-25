@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/work/acme/shop","sessionId":"0b6a3c1e-5d2f-4a8b-9c7d-1e2f3a4b5c6d","version":"2.1.300","gitBranch":"main","timestamp":"2026-11-20T10:01:50.000Z","message":{"model":"claude-opus-5-5","id":"msg_J1","type":"message","role":"assistant","content":[],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":999,"output_tokens":999}},"requestId":"req_J1","type":"assistant","uuid":"uuid-msg_J1"}
+{"type":"workflow-step","step":1}
