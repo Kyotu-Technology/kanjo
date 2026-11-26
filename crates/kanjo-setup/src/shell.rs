@@ -77,17 +77,44 @@ fn single_quoted_posix(s: &str) -> String {
 /// characters stays unquoted so the command works in either shell, otherwise
 /// Git Bash gets single quotes and PowerShell the call operator `& '...'`.
 pub fn command_line(shell: Shell, exe: &Path, arg: &str) -> String {
+    command_line_with(shell, exe, None, arg)
+}
+
+/// `exe [--home DIR] arg`: [`command_line`] that also names Kanjo's data
+/// directory, for an installation that does not use the default one.
+pub fn command_line_with(shell: Shell, exe: &Path, home: Option<&Path>, arg: &str) -> String {
+    let home = home.map(|h| format!("{HOME_FLAG} {} ", word(shell, &h.to_string_lossy()))).unwrap_or_default();
     let raw = exe.to_string_lossy();
     match shell {
-        Shell::Posix => format!("{} {arg}", single_quoted_posix(&raw)),
+        Shell::Posix => format!("{} {home}{arg}", single_quoted_posix(&raw)),
         Shell::GitBash | Shell::PowerShell => {
             let path = raw.replace('\\', "/");
             if is_plain(&path) {
-                format!("{path} {arg}")
+                format!("{path} {home}{arg}")
             } else if shell == Shell::GitBash {
-                format!("{} {arg}", single_quoted_posix(&path))
+                format!("{} {home}{arg}", single_quoted_posix(&path))
             } else {
-                format!("& '{}' {arg}", path.replace('\'', "''"))
+                format!("& '{}' {home}{arg}", path.replace('\'', "''"))
+            }
+        }
+    }
+}
+
+/// The global option that names the data directory.
+pub const HOME_FLAG: &str = "--home";
+
+/// One argument word for `shell`.
+fn word(shell: Shell, s: &str) -> String {
+    match shell {
+        Shell::Posix => single_quoted_posix(s),
+        Shell::GitBash | Shell::PowerShell => {
+            let s = s.replace('\\', "/");
+            if is_plain(&s) {
+                s
+            } else if shell == Shell::GitBash {
+                single_quoted_posix(&s)
+            } else {
+                format!("'{}'", s.replace('\'', "''"))
             }
         }
     }
@@ -161,13 +188,16 @@ pub fn program_stem(program: &str) -> String {
     }
 }
 
-/// True when `cmd` runs a Kanjo executable with exactly the argument `arg`.
-/// Kanjo is recognised by the program's file name (`kanjo`, or the name of
-/// `exe` when given), so an entry survives a moved or reinstalled binary.
+/// True when `cmd` runs a Kanjo executable with exactly the argument `arg`,
+/// optionally preceded by `--home DIR`. Kanjo is recognised by the program's
+/// file name (`kanjo`, or the name of `exe` when given), so an entry survives
+/// a moved or reinstalled binary.
 pub fn is_kanjo_command(cmd: &str, arg: &str, exe: Option<&Path>) -> bool {
     let words = split_words(cmd);
-    let [program, a] = words.as_slice() else {
-        return false;
+    let (program, a) = match words.as_slice() {
+        [program, a] => (program, a),
+        [program, flag, _, a] if flag == HOME_FLAG => (program, a),
+        _ => return false,
     };
     if a != arg {
         return false;
@@ -217,5 +247,29 @@ mod tests {
         assert!(!is_kanjo_command("'/x/kanjo' statusline --extra", "statusline", None));
         assert!(!is_kanjo_command("npx ccstatusline@latest", "statusline", None));
         assert!(!is_kanjo_command("/x/kanjo statusline", "hook", None));
+        assert!(is_kanjo_command("'/x/kanjo' --home '/data/k' statusline", "statusline", None));
+        assert!(!is_kanjo_command("'/x/kanjo' --other '/data/k' statusline", "statusline", None));
+    }
+
+    #[test]
+    fn the_data_directory_is_quoted_like_the_program() {
+        let exe = Path::new("/usr/bin/kanjo");
+        let home = Path::new("/srv/kanjo data/it's");
+        let cmd = command_line_with(Shell::Posix, exe, Some(home), "hook");
+        assert_eq!(cmd, r"'/usr/bin/kanjo' --home '/srv/kanjo data/it'\''s' hook");
+        assert_eq!(split_words(&cmd), vec!["/usr/bin/kanjo", "--home", "/srv/kanjo data/it's", "hook"]);
+        let win = Path::new(r"C:\Program Files\Kanjo\kanjo.exe");
+        let data = Path::new(r"D:\Kanjo Data");
+        assert_eq!(
+            command_line_with(Shell::PowerShell, win, Some(data), "statusline"),
+            "& 'C:/Program Files/Kanjo/kanjo.exe' --home 'D:/Kanjo Data' statusline"
+        );
+        assert_eq!(
+            command_line_with(Shell::GitBash, win, Some(Path::new(r"D:\kanjo")), "hook"),
+            "'C:/Program Files/Kanjo/kanjo.exe' --home D:/kanjo hook"
+        );
+        for shell in [Shell::Posix, Shell::GitBash, Shell::PowerShell] {
+            assert!(is_kanjo_command(&command_line_with(shell, win, Some(data), "hook"), "hook", None));
+        }
     }
 }

@@ -3,6 +3,9 @@
   import { useQuery } from '../lib/api/query.svelte';
   import { fmt, t } from '../lib/i18n/index.svelte';
   import ConnectPanel from '../lib/shell/ConnectPanel.svelte';
+  import { runExport } from '../lib/shell/actions';
+  import { usePageExport, type PageExport } from '../lib/shell/exports.svelte';
+  import { api } from '../lib/stores/app.svelte';
   import { describeError } from '../lib/stores/app.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
@@ -26,11 +29,14 @@
   const metered = $derived(official || !!cur?.spend);
   const r = $derived(limits.refreshing);
   let connectOpen = $state(false);
+  const exp: PageExport = { kind: 'json', name: 'limits', data: async () => limits.data ?? api().limits() };
+  usePageExport(() => exp);
 </script>
 
 <PageHeader title={t('pages.limits.title')} lede={t('pages.limits.lede')}>
   {#snippet meta()}
     {#if d}<span>{t('common.updated', { ago: fmt.ago(d.current.five_hour?.observed_at ?? d.current.seven_day?.observed_at ?? Date.now()) })}</span>{/if}
+    <Button size="sm" icon="download" onclick={() => runExport(exp)}>{t('common.export_json')}</Button>
   {/snippet}
 </PageHeader>
 

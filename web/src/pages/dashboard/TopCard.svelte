@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { BreakdownRow, Confidence } from '../../lib/api/contract';
   import ShareBars from '../../lib/charts/ShareBars.svelte';
-  import { modelColor, modelLabel } from '../../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t } from '../../lib/i18n/index.svelte';
   import { href } from '../../lib/router';
   import Card from '../../lib/ui/Card.svelte';
@@ -21,7 +21,7 @@
   const rows = $derived(
     tab === 'projects'
       ? projects.map((r) => ({ key: r.key, label: r.label, value: fmt.money(r.usage.cost_usd), share: r.share, href: href('/projects', { id: r.key }) }))
-      : models.map((r) => ({ key: r.key, label: modelLabel(r.key), value: fmt.money(r.usage.cost_usd), share: r.share, color: modelColor(r.key), href: href('/usage', { model: r.key }) })),
+      : models.map((r) => ({ key: r.key, label: modelLabel(r.key), title: modelTitle(r.key), value: fmt.money(r.usage.cost_usd), share: r.share, color: modelColor(r.key), href: href('/usage', { model: r.key }) })),
   );
 </script>
 

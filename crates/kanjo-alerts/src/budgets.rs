@@ -17,7 +17,7 @@ pub fn budgets(store: &Store, ctx: &Ctx) -> Result<Vec<Budget>> {
 pub fn create_budget(store: &Store, ctx: &Ctx, input: &BudgetInput) -> Result<Budget> {
     let redact = Settings::load(store)?.privacy.redact_paths;
     let id = store.write(|tx| {
-        let v = validate(tx, input)?;
+        let v = validate(tx, input, redact)?;
         tx.execute(
             "INSERT INTO budgets (name, scope, scope_value, period, amount_usd, warn_pct, enabled, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -41,7 +41,7 @@ pub fn create_budget(store: &Store, ctx: &Ctx, input: &BudgetInput) -> Result<Bu
 pub fn update_budget(store: &Store, ctx: &Ctx, id: i64, input: &BudgetInput) -> Result<Budget> {
     let redact = Settings::load(store)?.privacy.redact_paths;
     store.write(|tx| {
-        let v = validate(tx, input)?;
+        let v = validate(tx, input, redact)?;
         let n = tx.execute(
             "UPDATE budgets SET name = ?2, scope = ?3, scope_value = ?4, period = ?5, amount_usd = ?6, warn_pct = ?7, enabled = ?8
              WHERE id = ?1",
@@ -79,7 +79,7 @@ struct Valid {
     scope_value: Option<String>,
 }
 
-fn validate(conn: &Connection, input: &BudgetInput) -> Result<Valid> {
+fn validate(conn: &Connection, input: &BudgetInput, redact: bool) -> Result<Valid> {
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 100 {
         return Err(Error::Invalid("the budget name must have 1 to 100 characters".into()));
@@ -105,10 +105,28 @@ fn validate(conn: &Connection, input: &BudgetInput) -> Result<Valid> {
             Some(id.to_string())
         }
         BudgetScope::Client | BudgetScope::Account => {
-            Some(value.ok_or_else(|| Error::Invalid("a client or account budget needs a scope value".into()))?)
+            let value = value.ok_or_else(|| Error::Invalid("a client or account budget needs a scope value".into()))?;
+            if input.scope == BudgetScope::Client && redact {
+                Some(real_client(conn, &value)?)
+            } else {
+                Some(value)
+            }
         }
     };
     Ok(Valid { name: name.to_string(), scope_value })
+}
+
+fn real_client(conn: &Connection, value: &str) -> Result<String> {
+    let mut stmt = conn.prepare(
+        "SELECT client FROM projects WHERE client IS NOT NULL UNION SELECT scope_value FROM budgets WHERE scope = 'client' AND scope_value IS NOT NULL",
+    )?;
+    let clients = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    for c in clients {
+        if crate::detect::client_alias(conn, &c)? == value {
+            return Ok(c);
+        }
+    }
+    Ok(value.to_string())
 }
 
 pub(crate) fn scope_str(s: BudgetScope) -> &'static str {
@@ -194,7 +212,12 @@ fn status(conn: &Connection, ctx: &Ctx, row: Row, redact: bool) -> Result<Budget
             Err(_) => None,
         },
         (BudgetScope::Global, _) => None,
+        (BudgetScope::Client, Some(v)) if redact => Some(crate::detect::client_alias(conn, v)?),
         (_, v) => v.map(str::to_string),
+    };
+    let shown_value = match scope {
+        BudgetScope::Client if redact => scope_label.clone(),
+        _ => scope_value,
     };
     let spent_pct = if amount_usd > 0.0 { spent_usd / amount_usd * 100.0 } else { 0.0 };
     let length = (end - start).max(1);
@@ -211,7 +234,7 @@ fn status(conn: &Connection, ctx: &Ctx, row: Row, redact: bool) -> Result<Budget
         id,
         name,
         scope,
-        scope_value,
+        scope_value: shown_value,
         scope_label,
         period,
         amount_usd,

@@ -103,6 +103,7 @@
 
 <style>
   .scroll {
+    position: relative;
     overflow-x: auto;
     border-radius: var(--r-sm);
   }

@@ -53,8 +53,20 @@ impl Failure {
     }
 }
 
+fn busy(err: &rusqlite::Error) -> bool {
+    matches!(err.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
 fn explain(e: &Error, lang: Lang) -> (String, Option<String>) {
     match e {
+        Error::Db(err) if busy(err) => (
+            tr!(lang, "the database is busy ({err}).", "baza danych jest zajęta ({err})."),
+            Some(tr!(
+                lang,
+                "another Kanjo process (the dashboard or another command) is writing to it; try again in a moment.",
+                "inny proces Kanjo (pulpit albo inne polecenie) właśnie do niej zapisuje; spróbuj ponownie za chwilę."
+            )),
+        ),
         Error::Db(err) => (
             tr!(lang, "the database could not be used ({err}).", "nie udało się skorzystać z bazy danych ({err})."),
             Some(tr!(
@@ -95,5 +107,19 @@ fn explain(e: &Error, lang: Lang) -> (String, Option<String>) {
             tr!(lang, "{msg}.", "{msg}."),
             Some(tr!(lang, "run \"kanjo doctor\" for a full check.", "uruchom \"kanjo doctor\", żeby sprawdzić całą instalację.")),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_locked_database_is_not_called_damaged() {
+        let locked = Error::Db(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(5), Some("database is locked".into())));
+        let text = Failure::Core(locked).render(Lang::En).unwrap();
+        assert!(text.contains("busy") && text.contains("try again") && !text.contains("restore"), "{text}");
+        let other = Error::Db(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(11), None));
+        assert!(Failure::Core(other).render(Lang::En).unwrap().contains("restore a backup"));
     }
 }

@@ -113,7 +113,11 @@ jobs:
           path: web/dist
       - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET"
+          components=""
+          # llvm-objdump lists the DLLs kanjo.exe imports (scripts/check-binary.sh).
+          if [ "$RUNNER_OS" = Windows ]; then components="--component llvm-tools"; fi
+          # shellcheck disable=SC2086
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET" $components
           rustup default "$RUST_TOOLCHAIN"
       - name: Install the musl C toolchain
         if: runner.os == 'Linux'
@@ -139,36 +143,13 @@ jobs:
         with:
           tool: cargo-auditable@0.7.8,cargo-audit@0.23.0
       - name: Build
-        run: |
-          ws="$GITHUB_WORKSPACE"
-          ch="${CARGO_HOME:-$HOME/.cargo}"
-          if command -v cygpath >/dev/null 2>&1; then ch=$(cygpath -w "$ch"); fi
-          CARGO_ENCODED_RUSTFLAGS="$(printf '%s\037%s' "--remap-path-prefix=$ws=/build/kanjo" "--remap-path-prefix=$ch=/cargo")"
-          export CARGO_ENCODED_RUSTFLAGS
-          cargo auditable build --release --locked -p kanjo --target "$TARGET"
+        run: scripts/release-build.sh
       - name: Check the binary
         run: |
           bin="target/$TARGET/release/kanjo"
           if [ "$RUNNER_OS" = Windows ]; then bin="$bin.exe"; fi
-          "$bin" --version
-          grep -q -a -F '.dep-v0' "$bin" || { echo "::error::no cargo-auditable data in $bin"; exit 1; }
-          cargo audit bin "$bin"
-          case "$RUNNER_OS" in
-            Linux)
-              if readelf -d "$bin" | grep -q NEEDED; then
-                readelf -d "$bin"
-                echo "::error::$bin is not statically linked"
-                exit 1
-              fi
-              ;;
-            macOS)
-              otool -L "$bin"
-              if otool -L "$bin" | tail -n +2 | grep -v -E '^[[:space:]]+/(usr/lib|System/Library)/'; then
-                echo "::error::$bin links a library outside the OS"
-                exit 1
-              fi
-              ;;
-          esac
+          scripts/check-binary.sh "$bin" "$TARGET"
+          scripts/cargo-audit.sh bin "$bin"
           mkdir -p out
           cp "$bin" out/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -251,6 +232,21 @@ jobs:
       - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: cosign (keyless)
         run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+      - name: Verify the signature the way the installers do
+        run: |
+          # The installers pin the signer to REPO_URL / $RepoUrl; a mismatch here
+          # would make every cosign check at install time fail.
+          expected="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          sh_url=$(sed -n 's/^REPO_URL="\(.*\)"$/\1/p' dist/install.sh)
+          ps_url=$(sed -n "s/^\$RepoUrl = '\(.*\)'\r*$/\1/p" dist/install.ps1)
+          if [ "$sh_url" != "$expected" ] || [ "$ps_url" != "$expected" ]; then
+            echo "::error::installers pin '$sh_url' and '$ps_url', but this release is signed as $expected"
+            exit 1
+          fi
+          cosign verify-blob --bundle dist/SHA256SUMS.sigstore.json \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "$expected/.github/workflows/release.yml@$GITHUB_REF" \
+            dist/SHA256SUMS
       - name: minisign
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}

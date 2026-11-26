@@ -70,8 +70,10 @@ pub struct SpoolReport {
 pub struct Ingestor {
     store: Arc<Store>,
     paths: Paths,
-    prices: RwLock<Arc<PriceTable>>,
+    prices: RwLock<Priced>,
     titles: AtomicBool,
+    /// Turning titles off could not clear the stored ones; retried on the next pass.
+    titles_dirty: AtomicBool,
     status: Mutex<IngestStatus>,
     refs: Mutex<HashMap<PathBuf, QueryRefs>>,
     pending_meta: Mutex<HashMap<String, pipeline::PendingMeta>>,
@@ -85,17 +87,47 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 const QUERY_REFS_KEPT: usize = 64;
 
+/// The price table in use and the stamp of the table it was loaded from.
+pub(crate) type Priced = (Option<(String, i64)>, Arc<PriceTable>);
+
+fn load_prices(c: &rusqlite::Connection) -> Result<Priced> {
+    Ok((pricing::active_stamp(c)?, Arc::new(pricing::active(c)?)))
+}
+
+fn clear_titles(tx: &rusqlite::Connection) -> Result<()> {
+    tx.execute_batch(
+        "UPDATE sessions SET title = NULL WHERE title IS NOT NULL;
+         UPDATE session_status SET session_name = NULL WHERE session_name IS NOT NULL;",
+    )?;
+    Ok(())
+}
+
 impl Ingestor {
     /// Loads the active price table and the session-title setting from the store.
+    /// With titles off, titles stored earlier are cleared.
     pub fn new(store: Arc<Store>, paths: Paths) -> Result<Ingestor> {
-        let prices = store.read(pricing::active)?;
+        let prices = store.read(load_prices)?;
         let titles = Settings::load(&store)?.privacy.session_titles;
+        if !titles {
+            let stored: bool = store.read(|c| {
+                Ok(c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM sessions WHERE title IS NOT NULL)
+                        OR EXISTS (SELECT 1 FROM session_status WHERE session_name IS NOT NULL)",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })?;
+            if stored {
+                store.write(|tx| clear_titles(tx))?;
+            }
+        }
         let stored: i64 = store.read(|c| Ok(c.query_row("SELECT count(*) FROM requests", [], |r| r.get(0))?))?;
         Ok(Ingestor {
             store,
             paths,
-            prices: RwLock::new(Arc::new(prices)),
+            prices: RwLock::new(prices),
             titles: AtomicBool::new(titles),
+            titles_dirty: AtomicBool::new(false),
             status: Mutex::new(IngestStatus { requests_stored: stored, ..IngestStatus::default() }),
             refs: Mutex::new(HashMap::new()),
             pending_meta: Mutex::new(HashMap::new()),
@@ -105,20 +137,62 @@ impl Ingestor {
     }
 
     /// Re-reads the active price table; new rows are priced with it. On failure the old table stays.
+    /// Not needed for tables imported by another process: every write batch checks
+    /// the active table's stamp and reloads it when it changed.
     pub fn reload_prices(&self) {
-        match self.store.read(pricing::active) {
-            Ok(table) => *self.prices.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(table),
+        match self.store.read(load_prices) {
+            Ok(p) => self.set_prices(p),
             Err(e) => tracing::warn!(error = %e, "price table could not be reloaded"),
         }
     }
 
-    /// Whether session titles (from `ai-title` records and the statusline) are stored. Off by default.
+    /// Whether session titles (from `ai-title` records and the statusline) are
+    /// stored. Off by default. Turning them off also clears every stored title
+    /// (`sessions.title`, `session_status.session_name`); this writes to the
+    /// database, so call it off the async runtime. A failed clear is logged and
+    /// retried on the next pass.
     pub fn set_store_titles(&self, on: bool) {
-        self.titles.store(on, Ordering::Relaxed);
+        self.titles.store(on, Ordering::SeqCst);
+        if !on {
+            for meta in lock(&self.pending_meta).values_mut() {
+                meta.title = None;
+            }
+            self.titles_dirty.store(true, Ordering::SeqCst);
+            self.clear_titles_if_off();
+        }
     }
 
-    pub(crate) fn prices(&self) -> Arc<PriceTable> {
+    /// Clears stored titles when titles are off and a clear is outstanding.
+    pub(crate) fn clear_titles_if_off(&self) {
+        if self.titles.load(Ordering::SeqCst) {
+            self.titles_dirty.store(false, Ordering::SeqCst);
+            return;
+        }
+        if !self.titles_dirty.load(Ordering::SeqCst) {
+            return;
+        }
+        match self.store.write(|tx| {
+            // Read under the write lock: a batch that stored a title before the switch has committed by now.
+            if !self.titles.load(Ordering::SeqCst) {
+                clear_titles(tx)?;
+            }
+            Ok(())
+        }) {
+            Ok(()) => self.titles_dirty.store(false, Ordering::SeqCst),
+            Err(e) => tracing::warn!(error = %e, "stored session titles could not be cleared; retrying on the next pass"),
+        }
+    }
+
+    pub(crate) fn titles_on(&self) -> bool {
+        self.titles.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn priced(&self) -> Priced {
         self.prices.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(crate) fn set_prices(&self, p: Priced) {
+        *self.prices.write().unwrap_or_else(|e| e.into_inner()) = p;
     }
 
     /// Imports every transcript not read yet (all of them on first start), in
@@ -202,7 +276,8 @@ impl Ingestor {
     }
 
     /// Forgets every transcript cursor, so the next backfill reads all history
-    /// again. Stored requests stay; re-read records deduplicate.
+    /// again. Stored requests stay; re-read records deduplicate, and records
+    /// that were purged or removed by retention stay out (purge marks).
     pub fn rescan_from_scratch(&self) -> Result<()> {
         let _pass = lock(&self.pass);
         self.store.write(|tx| Ok(tx.execute("DELETE FROM ingest_files WHERE kind IN ('transcript', 'subagent')", [])?))?;

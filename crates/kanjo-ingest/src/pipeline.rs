@@ -5,7 +5,7 @@ use crate::discover::{self, FileKind, Found, Target};
 use crate::record::{self, Chunk, FileCtx, QueryRefs};
 use crate::{Ingestor, ScanReport};
 use kanjo_core::model::InsertOutcome;
-use kanjo_core::pricing::PriceTable;
+use kanjo_core::pricing::{self, PriceTable};
 use kanjo_core::store::write;
 use kanjo_core::{settings, Result, Store};
 use rusqlite::{params, Connection};
@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 const BATCH_ROWS: usize = 20_000;
 const BATCH_FILES: usize = 256;
@@ -135,7 +135,9 @@ struct Written {
 
 struct Writer<'a> {
     store: &'a Store,
-    prices: &'a PriceTable,
+    stamp: Option<(String, i64)>,
+    prices: Arc<PriceTable>,
+    titles_flag: &'a AtomicBool,
     titles: bool,
     projects: HashMap<String, i64>,
     with_path: HashSet<String>,
@@ -148,18 +150,20 @@ struct Writer<'a> {
 /// Session metadata read before the session's first request was stored.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PendingMeta {
-    title: Option<String>,
+    pub(crate) title: Option<String>,
     account: Option<String>,
 }
 
 pub(crate) const PENDING_META_CAP: usize = 10_000;
 
 impl<'a> Writer<'a> {
-    fn new(store: &'a Store, prices: &'a PriceTable, titles: bool, pending: HashMap<String, PendingMeta>) -> Writer<'a> {
+    fn new(store: &'a Store, priced: crate::Priced, titles_flag: &'a AtomicBool, pending: HashMap<String, PendingMeta>) -> Writer<'a> {
         Writer {
             store,
-            prices,
-            titles,
+            stamp: priced.0,
+            prices: priced.1,
+            titles_flag,
+            titles: titles_flag.load(Ordering::SeqCst),
             projects: HashMap::new(),
             with_path: HashSet::new(),
             tools: HashMap::new(),
@@ -206,13 +210,21 @@ impl<'a> Writer<'a> {
     }
 
     fn apply(&mut self, tx: &Connection, group: &mut [Parsed], now: i64) -> Result<Written> {
+        // Both are read under the write lock, so a price import or a titles switch
+        // committed by another process or thread applies from this batch on.
+        let stamp = pricing::active_stamp(tx)?;
+        if stamp != self.stamp {
+            self.prices = Arc::new(pricing::active(tx)?);
+            self.stamp = stamp;
+        }
+        self.titles = self.titles_flag.load(Ordering::SeqCst);
         let mut w = Written::default();
         let mut dirty_tools = BTreeSet::new();
         for p in group.iter_mut() {
             let project_id = self.project(tx, p)?;
             for row in p.chunk.rows.iter_mut() {
                 row.project_id = project_id.unwrap_or_default();
-                match write::insert_request(tx, row, self.prices)? {
+                match write::insert_request(tx, row, &self.prices)? {
                     InsertOutcome::Inserted => {
                         self.report.inserted += 1;
                         w.inserted += 1;
@@ -223,10 +235,10 @@ impl<'a> Writer<'a> {
                         self.report.updated += 1;
                         self.sessions.insert(row.session_id.clone());
                     }
-                    InsertOutcome::Duplicate => {}
+                    InsertOutcome::Duplicate | InsertOutcome::Purged => {}
                 }
             }
-            self.apply_meta(tx, p)?;
+            self.apply_meta(tx, p, project_id, now)?;
             for seen in &p.chunk.tools {
                 let state = match self.tools.get(&seen.session_id) {
                     Some(s) => Some(s.clone()),
@@ -287,9 +299,21 @@ impl<'a> Writer<'a> {
     }
 
     /// Title and account land once the session row exists; until then they wait in `pending`.
-    fn apply_meta(&mut self, tx: &Connection, p: &Parsed) -> Result<()> {
+    /// A title written before a purge of its session is not kept, so a resumed
+    /// session does not get back the title of the purged conversation.
+    fn apply_meta(&mut self, tx: &Connection, p: &Parsed, project_id: Option<i64>, now: i64) -> Result<()> {
         if self.titles {
-            for (session, title) in &p.chunk.titles {
+            for (session, title, at) in &p.chunk.titles {
+                let at = match *at {
+                    0 => p.chunk.rows.iter().filter(|r| &r.session_id == session).map(|r| r.ts).min().unwrap_or(now),
+                    at => at,
+                };
+                if write::is_purged(tx, session, project_id, at)? {
+                    if let Some(meta) = self.pending.get_mut(session) {
+                        meta.title = None;
+                    }
+                    continue;
+                }
                 self.pending.entry(session.clone()).or_default().title = Some(title.clone());
             }
         }
@@ -303,8 +327,8 @@ impl<'a> Writer<'a> {
             .chunk
             .titles
             .iter()
-            .chain(&p.chunk.owners)
-            .map(|(s, _)| s.as_str())
+            .map(|(s, _, _)| s.as_str())
+            .chain(p.chunk.owners.iter().map(|(s, _)| s.as_str()))
             .chain(p.chunk.rows.iter().map(|r| r.session_id.as_str()))
             .collect();
         for session in candidates {
@@ -326,9 +350,12 @@ impl<'a> Writer<'a> {
         Ok(())
     }
 
-    fn finish(mut self) -> (ScanReport, HashMap<String, PendingMeta>) {
+    fn finish(mut self) -> (ScanReport, HashMap<String, PendingMeta>, crate::Priced) {
         self.report.sessions = self.sessions.into_iter().collect();
-        (self.report, self.pending)
+        if !self.titles_flag.load(Ordering::SeqCst) {
+            self.pending.values_mut().for_each(|m| m.title = None);
+        }
+        (self.report, self.pending, (self.stamp, self.prices))
     }
 }
 
@@ -342,10 +369,12 @@ impl Ingestor {
     /// Parses `jobs` in parallel and writes them through one writer.
     pub(crate) fn run(&self, mut jobs: Vec<Job>, progress: Progress) -> Result<ScanReport> {
         jobs.sort_by_key(|j| std::cmp::Reverse(j.size.saturating_sub(j.start)));
-        let prices = self.prices();
-        let titles = self.titles.load(Ordering::Relaxed);
+        self.clear_titles_if_off();
+        let priced = self.priced();
+        let stamp = priced.0.clone();
+        let titles = self.titles_on();
         let pending = std::mem::take(&mut *crate::lock(&self.pending_meta));
-        let mut writer = Writer::new(&self.store, &prices, titles, pending);
+        let mut writer = Writer::new(&self.store, priced, &self.titles, pending);
         let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(jobs.len()).max(1);
         let next = AtomicUsize::new(0);
         let abort = AtomicBool::new(false);
@@ -408,7 +437,10 @@ impl Ingestor {
             }
             Ok(())
         });
-        let (report, mut pending) = writer.finish();
+        let (report, mut pending, priced) = writer.finish();
+        if priced.0 != stamp {
+            self.set_prices(priced);
+        }
         if pending.len() > PENDING_META_CAP {
             pending.clear();
         }
@@ -416,6 +448,7 @@ impl Ingestor {
         pending.extend(shared.drain());
         *shared = pending;
         drop(shared);
+        self.clear_titles_if_off();
         outcome.map(|_| report)
     }
 }

@@ -2,15 +2,17 @@
   import type { BreakdownRow } from '../lib/api/contract';
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
-  import { modelColor, modelLabel } from '../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../lib/charts/series';
   import { fmt, t, tn } from '../lib/i18n/index.svelte';
   import { href } from '../lib/router';
-  import { describeError } from '../lib/stores/app.svelte';
+  import { api, describeError } from '../lib/stores/app.svelte';
+  import { usePageExport } from '../lib/shell/exports.svelte';
   import { router } from '../lib/stores/router.svelte';
   import Answer from '../lib/ui/Answer.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
+  import ConfidenceBadge from '../lib/ui/ConfidenceBadge.svelte';
   import EmptyState from '../lib/ui/EmptyState.svelte';
   import Icon from '../lib/ui/Icon.svelte';
   import InlineHelp from '../lib/ui/InlineHelp.svelte';
@@ -38,6 +40,10 @@
   const agentShare = $derived(s && s.usage.cost_usd > 0 ? s.subagent_cost_usd / s.usage.cost_usd : 0);
   const agentLabel = (r: BreakdownRow) => (r.key === 'main' ? t('common.main') : r.label);
   const lede = $derived(s ? [s.project, s.git_branch, fmt.dateTime(s.started_at)].filter(Boolean).join(', ') : undefined);
+  usePageExport(() => {
+    const sid = id;
+    return { kind: 'json', name: `session-${sid.slice(0, 8)}`, data: async () => (detail.data?.summary.id === sid ? detail.data : api().session(sid)) };
+  });
 </script>
 
 <p class="back"><a href={href('/sessions')}><Icon name="chevron_left" size={16} />{t('pages.session.back')}</a></p>
@@ -85,6 +91,16 @@
       <Stat label={t('pages.session.stat.cost')} meta={tn('units.requests', s.usage.requests)}>
         {#snippet value()}<Money usd={s.usage.cost_usd} confidence="lower_bound" unpriced={s.usage.unpriced_requests} size="lg" />{/snippet}
       </Stat>
+      {#if s.is_active}
+        <Stat
+          label={t('dashboard.block.burn')}
+          meta={d.burn.active
+            ? t('dashboard.block.burn_meta', { tokens: fmt.compact(d.burn.tokens_per_min), minutes: fmt.number(d.burn.window_minutes) })
+            : t('dashboard.block.idle', { minutes: d.burn.window_minutes })}
+        >
+          {#snippet value()}<span class="burn"><Money usd={d.burn.usd_per_hour} confidence="estimate" size="lg" badge="none" /><span class="unit">{t('dashboard.block.per_hour')}</span><ConfidenceBadge confidence="estimate" compact /></span>{/snippet}
+        </Stat>
+      {/if}
       <Figure label={t('pages.session.stat.duration')} value={fmt.duration(s.last_at - s.started_at)} meta={`${fmt.time(s.started_at)} - ${fmt.time(s.last_at)}`} />
       <Figure label={t('pages.session.stat.tokens')} help={t('pages.usage.stat.tokens_help')} value={fmt.compact(tokens)} meta={t('pages.usage.tokens_split', { read: fmt.compact(s.usage.tokens.cache_read), out: fmt.compact(s.usage.tokens.output) })} />
       <Figure label={t('pages.session.stat.cache')} help={t('pages.usage.stat.cache_help')} value={s.cache_hit_ratio === null ? t('common.unknown') : fmt.ratio(s.cache_hit_ratio)} meta={t('pages.usage.cache_meta')} />
@@ -94,7 +110,7 @@
       <div class="span-8"><Timeline timeline={d.timeline} refreshing={detail.refreshing} /></div>
       <div class="span-4"><Official detail={d} /></div>
       <div class="span-4">
-        <Split title={t('pages.session.by_model')} nameColumn={t('pages.usage.dims.model')} rows={d.by_model} confidence="lower_bound" label={(r) => modelLabel(r.key)} color={(r) => modelColor(r.key)} />
+        <Split title={t('pages.session.by_model')} nameColumn={t('pages.usage.dims.model')} rows={d.by_model} confidence="lower_bound" label={(r) => modelLabel(r.key)} tooltip={(r) => modelTitle(r.key)} color={(r) => modelColor(r.key)} />
       </div>
       <div class="span-4">
         <Split title={t('pages.session.by_agent')} nameColumn={t('pages.usage.dims.agent')} rows={d.by_agent} confidence="lower_bound" label={agentLabel} help={t('pages.session.agent_help')} />
@@ -116,6 +132,17 @@
 {/if}
 
 <style>
+  .burn {
+    display: inline-flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .unit {
+    color: var(--ink-3);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+  }
   .back {
     margin-bottom: var(--sp-3);
     font-size: var(--fs-sm);

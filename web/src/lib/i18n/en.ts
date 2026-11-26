@@ -5,6 +5,8 @@ import systemEn from './pages/system.en';
 
 const en = {
   common: {
+    export: 'Export',
+    export_json: 'Export as JSON',
     loading: 'Loading',
     retry: 'Try again',
     close: 'Close',
@@ -217,8 +219,10 @@ const en = {
       spent: 'Spent so far',
       burn: 'Spending rate',
       per_hour: 'per hour',
+      burn_meta: '{tokens} tokens/min, over the last {minutes} min',
+      burn_block: 'Average since the block started: {value} per hour',
       projected: 'By the end of the block',
-      projected_note: 'If the current pace holds',
+      projected_note: 'If the average pace since the block started holds',
       ends: 'Ends {when}',
       started: 'Started {time}',
       by_model: 'By model',
@@ -306,7 +310,7 @@ const en = {
   auth: {
     title: 'Open Kanjo from your terminal',
     body: 'For your safety this page only opens through a private link. Run this command on the computer where Kanjo is installed and it opens the dashboard for you:',
-    why: 'The link carries a one-time key, so nobody else on your network can see your figures.',
+    why: 'The link carries your private access key, so nobody else on your network can see your figures. Keep it to yourself.',
     retry: 'I have done that, try again',
   },
   onboarding: {
@@ -526,6 +530,8 @@ const en = {
         description: 'Download the figures behind this page, for a spreadsheet or another tool.',
         what: 'What to export',
         over_time: 'Cost over time, {group}',
+        heatmap: 'Activity by hour and day (JSON)',
+        compare: 'This week and month against the last (JSON)',
         breakdown: 'Breakdown by {dim}',
         format: 'Format',
         csv: 'CSV, for spreadsheets',
@@ -684,6 +690,9 @@ const en = {
         kind_anchored: 'Anchored',
         kind_inferred: 'Inferred',
         no_peak: 'No reading',
+        col_projects: 'Projects',
+        col_models: 'Models',
+        more: '{count} more',
       },
       per_pct_box: {
         title: 'What one percent of the weekly limit buys',
@@ -691,6 +700,7 @@ const en = {
         sentence: 'This week one percent of your weekly limit has bought about {value} of usage at API prices.',
         last: 'In the last week with a reading, one percent of your weekly limit bought about {value} of usage at API prices.',
         range: 'Across the weeks with readings it ranged from {low} to {high}.',
+        range_flat: 'It stayed at about {value} in every week with readings.',
         explain: 'A higher figure means the limit stretches further. Cache reuse and lighter models raise it; long contexts and heavy models lower it.',
         missing: 'Weeks without a status line reading have no figure.',
         empty: 'This needs at least one week of status line readings.',
@@ -752,6 +762,7 @@ const en = {
         },
         do: {
           keep: 'Nothing to do. Kanjo checks again as your usage changes.',
+          keep_hot: 'Spread heavy work across the week and watch the Limits page, so you reach the limits less often.',
           upgrade: 'Look at the Limits page to see when you hit the limits, then compare the plans.',
           downgrade: 'Watch one more month before you switch, so a busy week does not catch you out.',
           unknown: 'Set your plan in Settings.',
@@ -918,6 +929,7 @@ const en = {
       shown: '{shown} of {total}',
       link: {
         session: 'Open session',
+        project: 'Open project sessions',
         limits: 'Open Limits',
         budget: 'See budget',
         insights: 'Open Insights',
@@ -944,7 +956,7 @@ const en = {
         project: 'Project',
         client: 'Client',
         account: 'Account ID',
-        account_help: 'The account ID as Claude Code reports it, for example in the status line.',
+        account_help: 'Kanjo compares this ID with the account recorded in Claude Code session files. Kanjo does not show account IDs, so change it only if you know the exact value.',
         no_clients: 'No project has a client yet. Assign clients on the Projects page.',
         period: 'Period',
         period_opt: {

@@ -20,7 +20,7 @@ pub(crate) fn candidates(conn: &Connection, ctx: &Ctx, settings: &Settings) -> R
     let mut out = Vec::new();
     limit_rules(conn, ctx, a, &mut out)?;
     if a.budgets {
-        budget_rules(conn, ctx, redact, &mut out)?;
+        budget_rules(conn, ctx, &mut out)?;
     }
     let active = detect::active_sessions(conn, ctx.now - ACTIVE_SESSION_MS)?;
     if a.anomalies {
@@ -97,14 +97,15 @@ fn limit_rules(conn: &Connection, ctx: &Ctx, a: &AlertSettings, out: &mut Vec<Ca
     Ok(())
 }
 
-fn budget_rules(conn: &Connection, ctx: &Ctx, redact: bool, out: &mut Vec<Candidate>) -> Result<()> {
+/// Parameters keep the real scope labels; redaction is applied when the alert is read.
+fn budget_rules(conn: &Connection, ctx: &Ctx, out: &mut Vec<Candidate>) -> Result<()> {
     // Budget ids can be reused after a delete, so the creation time is part of the key.
     let created: BTreeMap<i64, i64> = {
         let mut stmt = conn.prepare("SELECT id, created_at FROM budgets")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
         rows
     };
-    for b in crate::budgets::all(conn, ctx, redact)? {
+    for b in crate::budgets::all(conn, ctx, false)? {
         let created_at = created.get(&b.id).copied().unwrap_or(0);
         if !b.enabled {
             continue;
@@ -117,7 +118,7 @@ fn budget_rules(conn: &Connection, ctx: &Ctx, redact: bool, out: &mut Vec<Candid
         out.push(Candidate {
             kind,
             severity,
-            dedup_key: format!("{tag}:{}:{created_at}:{}", b.id, b.period_start),
+            dedup_key: format!("{tag}:{}:{created_at}:{}:{}", b.id, crate::budgets::period_str(b.period), ctx.date_label(b.period_start)),
             params: json!({
                 "budget_id": b.id,
                 "name": b.name,

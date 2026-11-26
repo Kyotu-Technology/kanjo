@@ -34,7 +34,10 @@
   $effect(() => {
     const n = name;
     const loader = LAZY[n];
-    if (loader && !loaded[n]) loader().then((m) => (loaded = { ...loaded, [n]: m.default }));
+    if (loader && !loaded[n])
+      loader().then((m) => {
+        loaded = { ...loaded, [n]: m.default };
+      });
   });
 
   $effect(() => {

@@ -36,8 +36,12 @@ pub fn statusline(home: Option<PathBuf>, claude_dir: Option<PathBuf>, no_color: 
     let paths = Paths::resolve(home, claude_dir).ok();
     let config = paths.as_ref().and_then(|p| Config::load(p).ok()).unwrap_or_default();
     let record = StatuslineInput::parse(&input).ok().and_then(|i| i.to_record(now)).map(SpoolRecord::Statusline);
-    if let (Some(paths), Some(record)) = (&paths, &record) {
-        let _ = spool::append(&paths.spool_dir(), now, record);
+    if let (Some(paths), Some(SpoolRecord::Statusline(r))) = (&paths, &record) {
+        let mut spooled = r.clone();
+        if !config.statusline.capture_titles {
+            spooled.session_name = None;
+        }
+        let _ = spool::append(&paths.spool_dir(), now, &SpoolRecord::Statusline(spooled));
     }
     let mut opts = RenderOptions::from_env(now);
     if no_color {

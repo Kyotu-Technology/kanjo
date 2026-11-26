@@ -4,31 +4,31 @@
   import { useQuery } from '../../lib/api/query.svelte';
   import { fmt, t, tk } from '../../lib/i18n/index.svelte';
   import { describeError } from '../../lib/stores/app.svelte';
-  import { exportView } from '../../lib/shell/actions';
+  import { runExport } from '../../lib/shell/actions';
+  import { usePageExport } from '../../lib/shell/exports.svelte';
   import Button from '../../lib/ui/Button.svelte';
   import Card from '../../lib/ui/Card.svelte';
   import DataTable, { type Column } from '../../lib/ui/DataTable.svelte';
   import EmptyState from '../../lib/ui/EmptyState.svelte';
   import Icon from '../../lib/ui/Icon.svelte';
   import Skeleton from '../../lib/ui/Skeleton.svelte';
+  import { actionKey, actorKey, actorUser, detailText } from './audit';
 
+  usePageExport(() => ({ kind: 'server', view: 'audit' }));
   const PAGE = 12;
   let offset = $state(0);
   const page = useQuery(() => queries.audit({ limit: PAGE, offset }));
   const d = $derived(page.data);
 
-  function label(map: string, key: string): string {
-    const k = `${map}.${key.replace(/[^a-z0-9]+/gi, '_')}`;
+  function action(e: AuditEntry): string {
+    const k = `system.audit.actions.${actionKey(e.action)}`;
     const v = tk(k);
-    return v === k ? key : v;
+    return v === k ? e.action : v;
   }
 
-  function details(e: AuditEntry): string {
-    const v = e.detail;
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return v === null || v === undefined ? '' : String(v);
-    return Object.entries(v)
-      .map(([k, x]) => `${k}: ${Array.isArray(x) ? x.join(', ') : typeof x === 'object' && x !== null ? JSON.stringify(x) : String(x)}`)
-      .join('; ');
+  function who(e: AuditEntry): string {
+    const k = actorKey(e);
+    return k ? t(`system.audit.actor.${k}`) : e.actor;
   }
 
   const columns = $derived<Column<AuditEntry>[]>([
@@ -50,14 +50,14 @@
         {#snippet cell(e, col)}
           {#if col.key === 'when'}<span class="num">{fmt.dateTime(e.ts)}</span>
           {:else if col.key === 'action'}
-            <span class="act">{label('system.audit.actions', e.action)}</span>
+            <span class="act">{action(e)}</span>
             <code class="target">{e.target}</code>
-          {:else if col.key === 'details'}<span class="det">{details(e)}</span>
-          {:else}{label('system.audit.actor', e.actor)}{/if}
+          {:else if col.key === 'details'}<span class="det">{detailText(e)}</span>
+          {:else}{who(e)}{#if actorKey(e) && actorUser(e)}<span class="user">{actorUser(e)}</span>{/if}{/if}
         {/snippet}
       </DataTable>
       <nav class="pager" aria-label={t('system.audit.title')}>
-        <Button size="sm" variant="ghost" icon="download" onclick={() => exportView('audit')}>{t('system.audit.export')}</Button>
+        <Button size="sm" variant="ghost" icon="download" onclick={() => runExport({ kind: 'server', view: 'audit' })}>{t('system.audit.export')}</Button>
         <span class="range">{t('system.audit.page', { from: fmt.number(offset + 1), to: fmt.number(Math.min(offset + PAGE, d.total)), total: fmt.number(d.total) })}</span>
         <Button size="sm" icon="chevron_left" disabled={offset === 0} onclick={() => (offset = Math.max(0, offset - PAGE))}>{t('system.audit.prev')}</Button>
         <Button size="sm" disabled={offset + PAGE >= d.total} onclick={() => (offset += PAGE)}>{t('system.audit.next')}<Icon name="chevron_right" size={16} /></Button>
@@ -94,6 +94,11 @@
   .act {
     display: block;
     font-weight: var(--fw-medium);
+  }
+  .user {
+    display: block;
+    color: var(--ink-3);
+    font-size: var(--fs-xs);
   }
   .target {
     color: var(--ink-3);

@@ -2,7 +2,9 @@
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
   import { fmt, t, tk } from '../lib/i18n/index.svelte';
-  import { describeError } from '../lib/stores/app.svelte';
+  import { api, describeError } from '../lib/stores/app.svelte';
+  import { runExport } from '../lib/shell/actions';
+  import { usePageExport, type PageExport } from '../lib/shell/exports.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
@@ -33,11 +35,18 @@
     if (p.roi === null) return t('pages.insights.answer.unpriced');
     return t('pages.insights.answer.keep', { plan: name, value: fmt.money(p.api_equivalent_usd, { digits: 0 }), multiple: fmt.number(p.roi, 1) });
   });
+  const exp: PageExport = {
+    kind: 'json',
+    name: 'insights',
+    data: async () => ({ insights: insights.data ?? (await api().insights()), plan: plan.data ?? (await api().plan()) }),
+  };
+  usePageExport(() => exp);
 </script>
 
 <PageHeader title={t('pages.insights.title')} lede={t('pages.insights.lede')}>
   {#snippet meta()}
     {#if d}<span>{t('common.updated', { ago: fmt.ago(d.generated_at) })}</span>{/if}
+    <Button size="sm" icon="download" onclick={() => runExport(exp)}>{t('common.export_json')}</Button>
   {/snippet}
 </PageHeader>
 

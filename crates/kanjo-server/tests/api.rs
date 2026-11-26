@@ -25,7 +25,13 @@ const HOST: &str = "127.0.0.1:4747";
 fn options(dir: &Path, demo: bool) -> ServeOptions {
     static NO_KEYRING: std::sync::Once = std::sync::Once::new();
     NO_KEYRING.call_once(|| std::env::set_var("KANJO_NO_KEYRING", "1"));
-    ServeOptions { paths: Paths::at(dir.join("home"), dir.join("claude")), config: Config::default(), open_browser: false, demo }
+    ServeOptions {
+        paths: Paths::at(dir.join("home"), dir.join("claude")),
+        config: Config::default(),
+        open_browser: false,
+        demo,
+        demo_days: None,
+    }
 }
 
 struct Fx {
@@ -128,6 +134,21 @@ async fn every_get_route_answers_with_its_documented_type() {
     let _: Settings = fx.get("/api/v1/settings").await;
     let system: SystemInfo = fx.get("/api/v1/system").await;
     assert!(!system.checks.is_empty());
+    for c in &system.checks {
+        if ["claude_dir", "statusline", "session_hooks", "encryption", "service", "quarantine"].contains(&c.id.as_str()) {
+            assert_eq!(c.status, CheckStatus::Ok, "a demo is healthy: {} {}", c.id, c.detail);
+        }
+        assert_ne!(c.status, CheckStatus::Fail, "{} {}", c.id, c.detail);
+    }
+    let pl: SystemInfo = fx.get("/api/v1/system?lang=pl").await;
+    assert_eq!(pl.checks.iter().find(|c| c.id == "service").unwrap().title, "Usługa w tle");
+    let en: SystemInfo = fx.get("/api/v1/system?lang=en").await;
+    assert_eq!(en.checks.iter().find(|c| c.id == "service").unwrap().title, "Background service");
+    let pl_pl: SystemInfo = fx.get("/api/v1/system?lang=pl-PL").await;
+    assert_eq!(pl_pl.checks.iter().find(|c| c.id == "service").unwrap().title, "Usługa w tle");
+    let other: SystemInfo = fx.get("/api/v1/system?lang=de").await;
+    let titles = |s: &SystemInfo| s.checks.iter().map(|c| c.title.clone()).collect::<Vec<_>>();
+    assert_eq!(titles(&other), titles(&system), "another language falls back to the language setting");
     assert!(!system.database.encrypted, "demo data is not encrypted");
     assert_eq!(system.server.port, PORT);
     assert!(system.server.auth);
@@ -239,10 +260,46 @@ async fn repeated_wrong_tokens_are_rate_limited() {
     }
     let r = fx.send(with("last".into())).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
-    let r = fx.send(with(fx.token.clone())).await;
-    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS, "locked out, even with the right token");
+    let r = fx.send(with("one more".into())).await;
+    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS, "further guesses are refused");
     assert!(!r.header("retry-after").is_empty());
     assert_eq!(r.error_code(), "unauthorized");
+    let r = fx.send(with(fx.token.clone())).await;
+    assert_eq!(r.status, StatusCode::OK, "the right token is never locked out");
+    let r = fx.send(Request::builder().uri(format!("/?token={}", fx.token)).header(header::HOST, HOST).body(Body::empty()).unwrap()).await;
+    assert!(r.header("set-cookie").starts_with("kanjo_session="), "nor is the right login link");
+}
+
+#[tokio::test]
+async fn wrong_login_links_from_other_sites_do_not_count() {
+    let fx = demo().await;
+    let link = |token: String, site: &'static str, mode: &'static str| {
+        Request::builder()
+            .uri(format!("/?token={token}"))
+            .header(header::HOST, HOST)
+            .header("sec-fetch-site", site)
+            .header("sec-fetch-mode", mode)
+            .body(Body::empty())
+            .unwrap()
+    };
+    for i in 0..30 {
+        assert_eq!(fx.send(link(format!("img-{i}"), "cross-site", "no-cors")).await.status, StatusCode::SEE_OTHER);
+        assert_eq!(fx.send(link(format!("nav-{i}"), "cross-site", "navigate")).await.status, StatusCode::SEE_OTHER);
+        assert_eq!(fx.send(link(format!("sub-{i}"), "same-origin", "no-cors")).await.status, StatusCode::SEE_OTHER);
+    }
+    let r = fx
+        .send(
+            Request::builder()
+                .uri("/api/v1/overview")
+                .header(header::HOST, HOST)
+                .header(header::AUTHORIZATION, "Bearer wrong")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED, "the peer is not locked out");
+    let r = fx.send(link(fx.token.clone(), "none", "navigate")).await;
+    assert!(r.header("set-cookie").starts_with("kanjo_session="));
 }
 
 #[tokio::test]
@@ -336,11 +393,42 @@ async fn settings_round_trip_and_audit() {
     assert_eq!(page.items[0].action, "settings.update");
     let changed = page.items[0].detail["changed"].as_array().unwrap().clone();
     assert!(changed.contains(&json!("plan")) && changed.contains(&json!("privacy")), "{changed:?}");
+    assert_eq!(page.items[0].actor, "local");
+    assert_eq!(page.items[0].detail["user"], "demo");
 
-    let mut bad = s.clone();
-    bad.week_start = 9;
-    let r = fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&bad).unwrap())).await;
-    assert_eq!((r.status, r.error_code().as_str()), (StatusCode::BAD_REQUEST, "invalid"));
+    type Change = Box<dyn Fn(&mut Settings)>;
+    let cases: Vec<(&str, Change)> = vec![
+        ("week_start 7", Box::new(|b| b.week_start = 7)),
+        ("currency code of two letters", Box::new(|b| b.currency.code = "ZL".into())),
+        ("currency code of four letters", Box::new(|b| b.currency.code = "PLNX".into())),
+        ("currency code with a digit", Box::new(|b| b.currency.code = "PL1".into())),
+        ("rate 0", Box::new(|b| b.currency.usd_rate = 0.0)),
+        ("rate above 1e6", Box::new(|b| b.currency.usd_rate = 1_000_001.0)),
+        ("negative price", Box::new(|b| b.plan.monthly_usd = Some(-1.0))),
+        ("no thresholds", Box::new(|b| b.alerts.limit_thresholds.clear())),
+        ("threshold 0.5", Box::new(|b| b.alerts.limit_thresholds = vec![0.5])),
+        ("threshold 101", Box::new(|b| b.alerts.limit_thresholds = vec![80.0, 101.0])),
+        ("context 9", Box::new(|b| b.alerts.context_threshold = 9.0)),
+        ("context 100.5", Box::new(|b| b.alerts.context_threshold = 100.5)),
+        ("retention 36501", Box::new(|b| b.retention.audit_days = 36_501)),
+    ];
+    for (name, change) in cases {
+        let mut bad = s.clone();
+        change(&mut bad);
+        let r = fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&bad).unwrap())).await;
+        assert_eq!((r.status, r.error_code().as_str()), (StatusCode::BAD_REQUEST, "invalid"), "{name}");
+    }
+    let mut edge = s.clone();
+    edge.week_start = 0;
+    edge.currency.code = "PLN".into();
+    edge.currency.usd_rate = 1e6;
+    edge.plan.monthly_usd = Some(0.0);
+    edge.alerts.limit_thresholds = vec![1.0, 100.0];
+    edge.alerts.context_threshold = 10.0;
+    edge.retention.requests_days = 0;
+    edge.retention.audit_days = 36_500;
+    let r = fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&edge).unwrap())).await;
+    assert_eq!(r.status, StatusCode::OK, "the edges of every range are allowed: {}", String::from_utf8_lossy(&r.body));
 }
 
 #[tokio::test]
@@ -425,7 +513,17 @@ async fn backup_and_purge_are_audited() {
     assert!(page.chain_ok);
     let purge = page.items.iter().find(|e| e.action == "data.purge").expect("purge audited");
     assert_eq!(purge.target, format!("session:{id}"));
-    assert_eq!(purge.actor, "demo");
+    assert_eq!(purge.actor, "local");
+    assert_eq!(purge.detail["deleted"], json!(id));
+    assert!(purge.detail["report"]["sessions"].as_i64().unwrap() >= 1);
+
+    let projects: Vec<Project> = fx.get("/api/v1/projects").await;
+    let p = &projects[0];
+    let r = fx.call("POST", "/api/v1/system/purge", Some(json!({ "project": p.id }))).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", String::from_utf8_lossy(&r.body));
+    let last: AuditPage = fx.get("/api/v1/audit?limit=1").await;
+    assert_eq!(last.items[0].target, format!("project:{}", p.id));
+    assert_eq!(last.items[0].detail["deleted"], json!(p.name), "the entry names the project");
     let backup = page.items.iter().find(|e| e.action == "backup.create").expect("backup audited");
     assert_eq!(backup.target, info.file);
 }
@@ -600,6 +698,128 @@ async fn real_server_serves_the_ui_and_the_api_over_a_socket() {
 }
 
 #[tokio::test]
+async fn the_server_announces_itself_and_takes_login_codes_from_the_command_line() {
+    use kanjo_setup::server_file;
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = options(dir.path(), true);
+    opts.config.server.port = 0;
+    let paths = opts.paths.clone();
+    let server = start(opts.clone()).await.unwrap();
+    let addr = server.local_addr();
+    let rec = server_file::answering(&paths).expect("server.json names the running server");
+    assert_eq!((rec.addr, rec.url.clone(), rec.auth, rec.demo), (addr, server.url(), true, true));
+    assert_eq!(rec.pid, std::process::id());
+
+    let err = start(opts.clone()).await.err().expect("a second server on the same data directory").to_string();
+    assert!(err.contains("already running") && err.contains(&rec.url), "{err}");
+
+    let token = kanjo_ops::token::load_or_create(&paths).unwrap();
+    let url = server_file::login_url(&paths, &rec, kanjo_core::time::now_ms()).unwrap();
+    assert!(url.starts_with(&rec.url) && !url.contains(&token), "{url}");
+    let path = url[url.find("/?").unwrap()..].to_string();
+    let (status, head, _) = plain(addr, &path, "").await;
+    assert_eq!(status, 303);
+    assert!(head.to_lowercase().contains("set-cookie: kanjo_session="), "{head}");
+    let (_, head, _) = plain(addr, &path, "").await;
+    assert!(!head.to_lowercase().contains("set-cookie"), "a code works once");
+
+    let mut stranger = rec.clone();
+    stranger.instance = "0".repeat(32);
+    let url = server_file::login_url(&paths, &stranger, kanjo_core::time::now_ms()).unwrap();
+    let (_, head, _) = plain(addr, &url[url.find("/?").unwrap()..], "").await;
+    assert!(!head.to_lowercase().contains("set-cookie"), "a code written for another instance is refused");
+
+    tokio::time::timeout(Duration::from_secs(15), server.shutdown()).await.unwrap().unwrap();
+    assert!(!paths.server_file().exists(), "removed on a clean shutdown");
+    assert!(server_file::live(&paths).is_none());
+    let again = start(opts).await.expect("the data directory is free again");
+    again.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn idle_connections_cannot_keep_the_owner_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = options(dir.path(), true);
+    opts.config.server.port = 0;
+    let paths = opts.paths.clone();
+    let server = start(opts).await.unwrap();
+    let addr = server.local_addr();
+    let token = kanjo_ops::token::load_or_create(&paths).unwrap();
+    let mut idle = Vec::new();
+    for _ in 0..300 {
+        idle.push(tokio::net::TcpStream::connect(addr).await.unwrap());
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (status, head, _) = tokio::time::timeout(Duration::from_secs(5), plain(addr, "/api/v1/health", ""))
+        .await
+        .expect("a new client is served while 300 idle sockets are open");
+    assert_eq!(status, 200, "{head}");
+    let (status, head, _) =
+        tokio::time::timeout(Duration::from_secs(5), plain(addr, "/api/v1/overview", &format!("Authorization: Bearer {token}\r\n")))
+            .await
+            .expect("the owner gets in");
+    assert_eq!(status, 200, "{head}");
+    drop(idle);
+    tokio::time::timeout(Duration::from_secs(15), server.shutdown()).await.unwrap().unwrap();
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            copy_dir(&e.path(), &target);
+        } else {
+            std::fs::copy(e.path(), target).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn turning_session_titles_off_forgets_the_stored_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = options(dir.path(), false);
+    opts.config.server.port = 0;
+    opts.config.storage.encryption = EncryptionMode::Off;
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects");
+    copy_dir(&fixtures, &opts.paths.claude_projects());
+    let paths = opts.paths.clone();
+    let server = start(opts).await.unwrap();
+    let token = kanjo_ops::token::load_or_create(&paths).unwrap();
+    let fx = Fx { _dir: tempfile::tempdir().unwrap(), state: server.state().clone(), app: router(server.state().clone()), token };
+    fx.state.set_port(PORT);
+    let titles = || async {
+        let list: SessionList = fx.get("/api/v1/sessions?limit=100&from=0").await;
+        list.items.into_iter().filter_map(|s| s.title).collect::<Vec<_>>()
+    };
+
+    let mut s: Settings = fx.get("/api/v1/settings").await;
+    s.privacy.session_titles = true;
+    assert_eq!(fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await.status, StatusCode::OK);
+    let mut stored = Vec::new();
+    for _ in 0..100 {
+        let _ = fx.call("POST", "/api/v1/system/rescan", None).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        stored = titles().await;
+        if !stored.is_empty() {
+            break;
+        }
+    }
+    assert!(stored.iter().any(|t| t.contains("invented checkout")), "{stored:?}");
+
+    s.privacy.session_titles = false;
+    assert_eq!(fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await.status, StatusCode::OK);
+    assert!(titles().await.is_empty(), "stored titles are cleared when the setting goes off");
+    let found: Vec<SearchResult> = fx.get("/api/v1/search?q=checkout").await;
+    assert!(found.iter().all(|r| !r.label.contains("invented checkout")), "{found:?}");
+    let csv = fx.send(fx.req("GET", "/api/v1/export/sessions?format=csv&from=0").body(Body::empty()).unwrap()).await;
+    assert!(!String::from_utf8_lossy(&csv.body).contains("invented checkout"));
+
+    fx.state.set_port(server.local_addr().port());
+    tokio::time::timeout(Duration::from_secs(15), server.shutdown()).await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn a_port_in_use_reports_that_kanjo_is_probably_running() {
     let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -683,6 +903,17 @@ async fn a_real_installation_imports_installs_hooks_and_shuts_down() {
     assert!(!hooks.statusline_installed && !hooks.session_hooks_installed);
     let actions = fx.audit_actions().await;
     assert!(actions.contains(&"hooks.install".to_string()) && actions.contains(&"hooks.uninstall".to_string()));
+
+    let capture = || Config::load(&paths).unwrap().statusline.capture_titles;
+    assert!(!capture());
+    let mut s: Settings = fx.get("/api/v1/settings").await;
+    s.privacy.session_titles = true;
+    assert_eq!(fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await.status, StatusCode::OK);
+    assert!(capture(), "the statusline may keep titles once they are allowed");
+    s.privacy.session_titles = false;
+    assert_eq!(fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await.status, StatusCode::OK);
+    assert!(!capture(), "and drops them again when they are not");
+    assert_eq!(Config::load(&paths).unwrap().server.port, Config::default().server.port, "the port override stays out of config.toml");
     let r = fx.call("POST", "/api/v1/system/rescan", None).await;
     assert_eq!(r.status, StatusCode::OK);
 

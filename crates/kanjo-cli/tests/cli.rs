@@ -102,7 +102,16 @@ impl Env {
 
 /// Runs a command that may not exit on its own (a foreground server), collects
 /// stdout until `marker` appears or `limit` passes, then kills it.
-fn run_until(mut cmd: Command, marker: &str, limit: Duration) -> String {
+fn run_until(cmd: Command, marker: &str, limit: Duration) -> String {
+    let (mut child, seen) = spawn_until(cmd, marker, limit);
+    let _ = child.kill();
+    let _ = child.wait();
+    seen
+}
+
+/// Starts a command and collects stdout until `marker` appears or `limit`
+/// passes; the process keeps running.
+fn spawn_until(mut cmd: Command, marker: &str, limit: Duration) -> (std::process::Child, String) {
     let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -128,9 +137,25 @@ fn run_until(mut cmd: Command, marker: &str, limit: Duration) -> String {
             Err(_) => break,
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    seen
+    (child, seen)
+}
+
+/// A plain HTTP/1.1 GET on 127.0.0.1; returns the raw response.
+#[cfg(feature = "server")]
+fn http_get(port: u16, path: &str) -> String {
+    use std::io::Read;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n").unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    out
+}
+
+/// The path and query of a URL on 127.0.0.1.
+#[cfg(feature = "server")]
+fn path_of(url: &str) -> &str {
+    &url[url.find("/?").unwrap()..]
 }
 
 fn text(b: &[u8]) -> String {
@@ -157,7 +182,26 @@ fn statusline_records_and_prints_on_valid_input() {
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0]["kind"], "statusline");
     assert_eq!(lines[0]["session_id"], "sess-1");
+    assert!(lines[0]["session_name"].is_null(), "titles are off by default, so none reaches the spool: {}", lines[0]);
     assert!(!env.home.join("kanjo.db").exists(), "the fast path must not create the database");
+
+    env.write_config("[statusline]\ncapture_titles = true\n");
+    ok(&env.run_stdin(&["statusline"], PAYLOAD.as_bytes()));
+    let lines = env.spool_lines();
+    assert!(lines.iter().any(|l| l["session_name"] == "refactor"), "{lines:?}");
+}
+
+#[test]
+fn the_home_option_reaches_the_fast_path() {
+    let env = Env::new();
+    let other = env.root.join("other-home");
+    let mut cmd = env.cmd(&["--home", other.to_str().unwrap(), "hook"]);
+    cmd.env_remove("KANJO_HOME").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    child.stdin.take().unwrap().write_all(br#"{"hook_event_name":"Stop","session_id":"s-1"}"#).unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+    assert_eq!(std::fs::read_dir(other.join("spool")).unwrap().count(), 1);
+    assert!(env.spool_lines().is_empty());
 }
 
 #[test]
@@ -282,13 +326,36 @@ fn export_purge_backup_restore_pricing_and_audit() {
     let list = json(&env.run(&["backup", "list", "--json"]));
     assert!(list.as_array().unwrap().iter().any(|b| b["file"] == file.as_str()));
 
-    let listener = std::net::TcpListener::bind(("127.0.0.1", env.port)).unwrap();
-    let busy = env.run(&["restore", &file]);
-    assert_eq!(busy.status.code(), Some(1));
-    assert!(text(&busy.stderr).contains("running"), "{}", text(&busy.stderr));
-    drop(listener);
+    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = squatter.local_addr().unwrap().port();
+    std::fs::write(env.home.join("config.toml"), format!("[server]\nport = {taken}\n[storage]\nencryption = \"off\"\n")).unwrap();
+    assert!(ok(&env.run(&["restore", &file])).contains("Restored"), "a foreign listener on the configured port is not Kanjo");
+    drop(squatter);
+
+    #[cfg(feature = "server")]
+    {
+        let port = free_port();
+        let (mut server, seen) =
+            spawn_until(env.cmd(&["serve", "--port", &port.to_string(), "--no-open"]), "Kanjo dashboard on", Duration::from_secs(60));
+        assert!(seen.contains(&format!("http://127.0.0.1:{port}/")), "{seen}");
+        let busy = env.run(&["restore", &file]);
+        assert_eq!(busy.status.code(), Some(1), "a server on a --port override is found");
+        assert!(text(&busy.stderr).contains("running") && text(&busy.stderr).contains(&port.to_string()), "{}", text(&busy.stderr));
+
+        let url = json(&env.run(&["--json", "open"]))["url"].as_str().unwrap().to_string();
+        let token = std::fs::read_to_string(env.home.join("access.token")).unwrap();
+        assert!(url.starts_with(&format!("http://127.0.0.1:{port}/?token=")), "{url}");
+        assert!(!url.contains(token.trim()), "kanjo open never hands out the access token");
+        let first = http_get(port, path_of(&url));
+        assert!(first.starts_with("HTTP/1.1 303") && first.to_lowercase().contains("set-cookie: kanjo_session="), "{first}");
+        assert!(!http_get(port, path_of(&url)).to_lowercase().contains("set-cookie"), "the code works once");
+
+        let _ = server.kill();
+        let _ = server.wait();
+        assert!(env.home.join("server.json").exists(), "a killed server leaves its record behind");
+    }
     let restored = ok(&env.run(&["restore", &file]));
-    assert!(restored.contains("Restored"));
+    assert!(restored.contains("Restored"), "a stale record does not block");
 
     let prices = env.root.join("prices.json");
     std::fs::write(
@@ -340,6 +407,8 @@ fn up_edits_settings_json_and_keeps_a_backup() {
     let o = child.wait_with_output().unwrap();
     let text_now = std::fs::read_to_string(&settings).unwrap();
     assert!(text_now.contains("statusLine") && text_now.contains("SessionStart"), "{text_now}\n{}", text(&o.stderr));
+    let named = format!("--home '{}' statusline", env.home.display());
+    assert!(text_now.contains(&named), "a data directory other than the default is named in the command: {text_now}");
     assert!(text_now.contains("\"model\": \"opus\""));
     assert!(backup(&env.claude));
     let out = text(&o.stdout);
@@ -397,38 +466,89 @@ fn the_stored_language_setting_beats_lang() {
 #[test]
 fn demo_serves_on_the_given_port() {
     let env = Env::new();
-    env.seed();
+    let home = env.root.join("demo-home");
     let port = free_port();
-    let mut child = env
-        .cmd(&["demo", "--port", &port.to_string(), "--no-open"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let start = Instant::now();
-    let mut body = String::new();
-    while start.elapsed() < Duration::from_secs(60) {
-        if let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", port)) {
-            use std::io::Read;
-            let _ = write!(s, "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
-            let _ = s.read_to_string(&mut body);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    let args = ["--home", home.to_str().unwrap(), "demo", "--port", &port.to_string(), "--no-open", "--days", "3"];
+    let (mut child, seen) = spawn_until(env.cmd(&args), "--home", Duration::from_secs(60));
+    assert!(seen.contains(&format!("http://127.0.0.1:{port}/")), "{seen}");
+    let link = seen.split_whitespace().find(|w| w.contains("?token=")).unwrap_or_else(|| panic!("no sign-in link: {seen}"));
+    let token = std::fs::read_to_string(home.join("access.token")).unwrap();
+    assert!(!link.contains(token.trim()), "the printed link carries a login code, not the token");
+    assert!(http_get(port, path_of(link)).to_lowercase().contains("set-cookie: kanjo_session="));
+    assert!(http_get(port, "/api/v1/health").contains("\"ok\""));
+    let url = json(&env.run(&["--home", home.to_str().unwrap(), "--json", "open"]))["url"].as_str().unwrap().to_string();
+    assert!(http_get(port, path_of(&url)).to_lowercase().contains("set-cookie: kanjo_session="), "kanjo open finds the demo");
     let _ = child.kill();
     let _ = child.wait();
-    assert!(body.contains("\"status\"") && body.contains("ok"), "{body}");
+
+    let daily = json(&env.run(&["--home", home.to_str().unwrap(), "daily", "--json"]));
+    let days = daily["daily"].as_array().unwrap().len();
+    assert!((1..=4).contains(&days), "--days 3 reaches the server: {days} days");
+}
+
+#[cfg(feature = "server")]
+#[test]
+fn demo_leaves_the_data_directory_of_kanjo_home_alone() {
+    let env = Env::new();
+    let real = env.root.join("real-home");
+    std::fs::create_dir_all(&real).unwrap();
+    let port = free_port();
+    let mut cmd = env.cmd(&["demo", "--port", &port.to_string(), "--no-open"]);
+    cmd.env("KANJO_HOME", &real);
+    let seen = run_until(cmd, "Kanjo dashboard on", Duration::from_secs(60));
+    assert!(seen.contains("Kanjo dashboard on"), "{seen}");
+    assert_eq!(std::fs::read_dir(&real).unwrap().count(), 0, "nothing was written to KANJO_HOME");
+}
+
+#[test]
+fn demo_refuses_a_real_installation() {
+    let env = Env::new();
+    let real = env.root.join("real");
+    std::fs::create_dir_all(real.join("spool")).unwrap();
+    std::fs::write(real.join("kanjo.key"), "k").unwrap();
+    let o = env.run(&["--home", real.to_str().unwrap(), "demo", "--no-open"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(text(&o.stderr).contains("real Kanjo installation"), "{}", text(&o.stderr));
+    std::fs::remove_file(real.join("kanjo.key")).unwrap();
+    let o = env.cmd(&["demo", "--seed-only"]).env("KANJO_HOME", &real).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(o.status.code(), Some(1), "a home with a spool is in use");
+    assert!(!real.join("kanjo.db").exists());
+}
+
+#[cfg(feature = "server")]
+#[test]
+fn a_refused_bind_says_why_instead_of_blaming_the_port() {
+    let env = Env::new();
+    let o = env.run(&["serve", "--bind", "0.0.0.0", "--port", &free_port().to_string(), "--no-open"]);
+    assert_eq!(o.status.code(), Some(1));
+    let err = text(&o.stderr);
+    assert!(err.contains("tls_cert") && !err.contains("already taken"), "{err}");
+    assert!(!text(&o.stdout).contains("Kanjo dashboard on"), "no banner for a server that never started");
+}
+
+#[test]
+fn a_database_made_without_encryption_says_how_to_open_it() {
+    let env = Env::new();
+    env.seed();
+    env.write_config("");
+    let o = env.run(&["status"]);
+    assert_eq!(o.status.code(), Some(1));
+    let err = text(&o.stderr);
+    assert!(err.contains("never encrypted") && err.contains("encryption = \"off\""), "{err}");
 }
 
 #[test]
 fn open_says_how_to_start_the_dashboard() {
     let env = Env::new();
-    let o = env.run(&["open"]);
+    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    std::fs::write(env.home.join("config.toml"), format!("[server]\nport = {}\n", squatter.local_addr().unwrap().port())).unwrap();
+    let o = env.run(&["--json", "open"]);
     assert_eq!(o.status.code(), Some(1));
     let err = text(&o.stderr);
     assert!(err.contains("not running") && err.contains("kanjo up"), "{err}");
+    assert!(o.stdout.is_empty(), "nothing is handed to whatever holds the port");
+    assert!(!env.home.join("access.token").exists());
+    drop(squatter);
 }
 
 #[test]

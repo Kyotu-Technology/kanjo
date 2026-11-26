@@ -29,7 +29,7 @@ describe('mock system and settings', () => {
     await api.removeHooks();
     const after = await api.system();
     expect(after.checks.find((c) => c.id === 'statusline')?.status).toBe('warn');
-    expect((await api.audit()).items[0].action).toBe('hooks.remove');
+    expect((await api.audit()).items[0].action).toBe('hooks.uninstall');
   });
 
   test('settings that the server would refuse are rejected and leave the stored settings alone', async () => {

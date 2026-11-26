@@ -1,5 +1,5 @@
 use crate::common::{
-    agent_key, bucket_label, bucket_start, bucket_starts, dow_hour, pseudonym, range, share, Env, Filter, Keys, ModelAcc, Range, Row, Src,
+    agent_key, bucket_label, bucket_start, bucket_starts, dow_hour, range, share, Env, Filter, Keys, ModelAcc, Range, Row, Src,
     REPORT_DAYS, UNASSIGNED, USAGE_REQUEST_COLS,
 };
 use kanjo_core::api::{
@@ -20,13 +20,14 @@ const MAX_DRIVERS: usize = 8;
 /// range (default 30 days) and the project / model / agent / client filters.
 /// Empty buckets are included. Reads `usage_hourly`.
 pub fn usage_report(store: &Store, ctx: &Ctx, q: &Query) -> Result<UsageReport> {
-    store.read(|c| usage_report_in(&Src::new(c)?, ctx, q))
+    let env = Env::load(store)?;
+    store.read(|c| usage_report_in(&Src::new(c)?, ctx, &env, q))
 }
 
-fn usage_report_in(src: &Src, ctx: &Ctx, q: &Query) -> Result<UsageReport> {
+fn usage_report_in(src: &Src, ctx: &Ctx, env: &Env, q: &Query) -> Result<UsageReport> {
     let r = range(ctx, q, REPORT_DAYS)?;
     let group = q.group.unwrap_or_default();
-    let rows = src.fetch(r.from, r.to, &Filter::from_query(q), Keys { hour: true, model: true, ..Keys::NONE })?;
+    let rows = src.fetch(r.from, r.to, &Filter::from_query(q, env), Keys { hour: true, model: true, ..Keys::NONE })?;
     let buckets = buckets(ctx, group, r, &rows)?;
     let total = buckets.iter().map(|b| b.usage).sum();
     Ok(UsageReport { group, from: r.from, to: r.to, buckets, total, confidence: Confidence::LowerBound })
@@ -73,7 +74,7 @@ pub fn breakdown(store: &Store, ctx: &Ctx, q: &Query) -> Result<Breakdown> {
 pub(crate) fn breakdown_in(src: &Src, ctx: &Ctx, env: &Env, q: &Query) -> Result<Breakdown> {
     let r = range(ctx, q, REPORT_DAYS)?;
     let by = q.by.unwrap_or_default();
-    let f = Filter::from_query(q);
+    let f = Filter::from_query(q, env);
     let (mut rows, total, confidence) = match by {
         Dimension::Project | Dimension::Model | Dimension::Agent | Dimension::Client => {
             let keys = Keys { project: true, model: by == Dimension::Model, agent: by == Dimension::Agent, ..Keys::NONE };
@@ -166,13 +167,12 @@ fn request_groups(src: &Src, r: Range, f: &Filter, by: Dimension, env: &Env) -> 
     } else {
         HashMap::new()
     };
-    Ok(raw
-        .into_iter()
+    raw.into_iter()
         .map(|(k, project, usage)| {
             let (key, label) = match by {
                 Dimension::Branch if k.is_empty() => (String::new(), "(none)".to_string()),
                 Dimension::Branch if env.redact => {
-                    let p = pseudonym("branch", &k);
+                    let p = kanjo_core::store::write::alias(src.c, "branch", &k)?;
                     (p.clone(), p)
                 }
                 Dimension::Branch => (k.clone(), k),
@@ -186,9 +186,9 @@ fn request_groups(src: &Src, r: Range, f: &Filter, by: Dimension, env: &Env) -> 
                     (k, label)
                 }
             };
-            BreakdownRow { key, label, usage, share: 0.0 }
+            Ok(BreakdownRow { key, label, usage, share: 0.0 })
         })
-        .collect())
+        .collect()
 }
 
 /// Usage per (kind, name) of the distinct requests that invoked each name.
@@ -223,7 +223,7 @@ pub(crate) fn tool_groups(src: &Src, r: Range, f: &Filter, kind: &str, session: 
 /// calendar day (empty days included). Range defaults to 365 days; filters apply.
 pub fn heatmap(store: &Store, ctx: &Ctx, q: &Query) -> Result<Heatmap> {
     let r = range(ctx, q, HEATMAP_DAYS)?;
-    let f = Filter::from_query(q);
+    let f = Filter::from_query(q, &Env::load(store)?);
     let rows = store.read(|c| Src::new(c)?.fetch(r.from, r.to, &f, Keys { hour: true, ..Keys::NONE }))?;
     let mut cells: Vec<HeatCell> =
         (0..7u8).flat_map(|dow| (0..24u8).map(move |hour| HeatCell { dow, hour, cost_usd: 0.0, tokens: 0, requests: 0 })).collect();
@@ -304,7 +304,7 @@ fn compare_in(src: &Src, ctx: &Ctx, env: &Env, q: &Query) -> Result<Comparison> 
         }
         other => return Err(Error::Invalid(format!("unknown period {other:?}, expected week or month"))),
     };
-    let f = Filter::from_query(q);
+    let f = Filter::from_query(q, env);
     let keys = Keys { project: true, model: true, agent: true, ..Keys::NONE };
     let cur_rows = src.fetch(cur.from, cur.to, &f, keys)?;
     let prev_rows = src.fetch(prev.from, prev.to, &f, keys)?;

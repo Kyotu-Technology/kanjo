@@ -355,7 +355,7 @@ fn config_fingerprints_baseline_then_changes() {
     assert_eq!(e.ing.check_config_files().unwrap(), 0, "first sighting is a baseline");
     assert_eq!(e.ing.check_config_files().unwrap(), 0);
     let stored: String = e.q("SELECT group_concat(key, ',') FROM (SELECT key FROM settings WHERE key LIKE 'fingerprint:%' ORDER BY key)");
-    let alias = write::project_alias("-work-acme");
+    let alias = e.store.read(|c| write::project_alias(c, "-work-acme")).unwrap();
     assert_eq!(
         stored,
         format!("fingerprint:claude_md:{alias},fingerprint:claude_md:user CLAUDE.md,fingerprint:plugins:enabledPlugins,fingerprint:settings:user settings.json")

@@ -843,10 +843,12 @@ export function planFit(ds: Dataset): PlanFit {
   } else if (!ds.records.length) {
     action = 'unknown';
     reason = 'no_history';
-  } else if (near >= 6 && kind !== 'max20x') {
-    action = 'upgrade';
+  } else if (near >= 6) {
     reason = 'frequent_limit_hits';
-    target = kind === 'max5x' ? 'max20x' : 'max5x';
+    if (kind !== 'max20x') {
+      action = 'upgrade';
+      target = kind === 'max5x' ? 'max20x' : 'max5x';
+    }
   } else if (sub !== null && api < sub * 0.6) {
     action = 'downgrade';
     reason = 'low_utilisation';
@@ -1041,28 +1043,28 @@ const ALERT_TEXT: Record<string, Record<'en' | 'pl', [string, string]>> = {
     pl: ['Limit tygodniowy może skończyć się przed odnowieniem', 'Przy obecnym tempie limit tygodniowy skończy się przed odnowieniem.'],
   },
   limit_threshold: {
-    en: ['5-hour limit passed {pct}%', 'The current 5-hour window has used {pct}% of its limit.'],
-    pl: ['Limit 5-godzinny przekroczył {pct}%', 'Bieżące okno 5-godzinne zużyło {pct}% limitu.'],
+    en: ['5-hour limit passed {threshold}%', 'The current 5-hour window has used {used_pct}% of its limit.'],
+    pl: ['Limit 5-godzinny przekroczył {threshold}%', 'Bieżące okno 5-godzinne zużyło {used_pct}% limitu.'],
   },
   budget_warning: {
-    en: ['Budget "Northwind billing work" is at {pct}%', 'Spending this month is close to the amount you set.'],
-    pl: ['Budżet „Northwind billing work” jest na poziomie {pct}%', 'Wydatki w tym miesiącu zbliżają się do ustalonej kwoty.'],
+    en: ['Budget "{name}" is at {spent_pct}%', 'Spending this month is close to the amount you set.'],
+    pl: ['Budżet „{name}” jest na poziomie {spent_pct}%', 'Wydatki w tym miesiącu zbliżają się do ustalonej kwoty.'],
   },
   context_near_limit: {
-    en: ['A session is close to its context limit', 'One running session has used {pct}% of its context window. Claude Code will soon compact it.'],
-    pl: ['Sesja zbliża się do limitu kontekstu', 'Jedna z trwających sesji zajęła {pct}% okna kontekstu. Claude Code wkrótce je skompresuje.'],
+    en: ['A session is close to its context limit', 'One running session has used {ctx_used_pct}% of its context window. Claude Code will soon compact it.'],
+    pl: ['Sesja zbliża się do limitu kontekstu', 'Jedna z trwających sesji zajęła {ctx_used_pct}% okna kontekstu. Claude Code wkrótce je skompresuje.'],
   },
   cache_miss_streak: {
     en: ['Cache misses in quill-api', 'The last {misses} requests could not reuse the cache, which makes them more expensive.'],
     pl: ['Chybienia pamięci podręcznej w quill-api', 'Ostatnie {misses} zapytania nie mogły skorzystać z pamięci podręcznej, przez co były droższe.'],
   },
   cost_spike: {
-    en: ['Unusually expensive day', 'Spending was {ratio} times the usual daily amount.'],
-    pl: ['Wyjątkowo drogi dzień', 'Wydatki były {ratio} razy wyższe niż zwykle w ciągu dnia.'],
+    en: ['Unusually expensive day', 'Spending was {factor} times the usual daily amount.'],
+    pl: ['Wyjątkowo drogi dzień', 'Wydatki były {factor} razy wyższe niż zwykle w ciągu dnia.'],
   },
   runaway_session: {
-    en: ['A session cost far more than usual', 'One session in {project} cost {ratio} times as much as a typical session.'],
-    pl: ['Sesja kosztowała znacznie więcej niż zwykle', 'Jedna sesja w projekcie {project} kosztowała {ratio} razy więcej niż typowa sesja.'],
+    en: ['A session cost far more than usual', 'One session in {project} cost {factor} times as much as a typical session.'],
+    pl: ['Sesja kosztowała znacznie więcej niż zwykle', 'Jedna sesja w projekcie {project} kosztowała {factor} razy więcej niż typowa sesja.'],
   },
   cache_cold: {
     en: ['The cache went cold', 'A session paused long enough for its cache to expire. The next request rebuilds it.'],
@@ -1142,7 +1144,7 @@ export function system(ds: Dataset, lang?: string): SystemInfo {
   };
 }
 
-const PRICES_LIST = { 'claude-opus-4-5': 1, 'claude-sonnet-4-5': 1, 'claude-haiku-4-5': 1 };
+const PRICES_LIST = { 'claude-opus-4-5': 1, 'claude-sonnet-4-5': 1, 'claude-haiku-4-5': 1, 'claude-fable-5-2': 1 };
 
 export function auditPage(ds: Dataset, q: Q): AuditPage {
   const offset = q.offset ?? 0;

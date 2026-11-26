@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ModelMixSuggestion } from '../../lib/api/contract';
-  import { modelColor, modelLabel } from '../../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t, tk } from '../../lib/i18n/index.svelte';
   import Card from '../../lib/ui/Card.svelte';
   import ConfidenceBadge from '../../lib/ui/ConfidenceBadge.svelte';
@@ -36,7 +36,7 @@
           <div class="head">
             <h3>{clean(tk(`pages.insights.mix.name.${kind(m.code)}`, p))}</h3>
             <span class="models" aria-hidden="true">
-              <span class="dot" style="background:{modelColor(m.from_model)}"></span>{p.from}
+              <span class="dot" style="background:{modelColor(m.from_model)}"></span><span title={modelTitle(m.from_model)}>{p.from}</span>
               <span class="to">/</span>
               <span class="dot" style="background:{modelColor(m.to_model)}"></span>{p.to}
             </span>

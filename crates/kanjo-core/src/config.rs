@@ -87,8 +87,6 @@ impl Config {
     pub fn save(&self, paths: &Paths) -> Result<()> {
         paths.ensure_home()?;
         let text = toml::to_string_pretty(self).map_err(|e| Error::Config(e.to_string()))?;
-        let file = paths.config_file();
-        std::fs::write(&file, text)?;
-        crate::paths::make_private_file(&file)
+        crate::paths::write_private_atomic(&paths.config_file(), text.as_bytes())
     }
 }

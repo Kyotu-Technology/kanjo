@@ -1,5 +1,6 @@
 use kanjo_core::api::{Granularity, Query, Tokens, Usage};
 use kanjo_core::settings::Settings;
+use kanjo_core::store::write::alias;
 use kanjo_core::time::{hour_floor, DAY_MS, HOUR_MS, MINUTE_MS};
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::types::Value;
@@ -28,6 +29,7 @@ pub(crate) struct ProjectLabel {
     pub alias: String,
     pub path: Option<String>,
     pub client: Option<String>,
+    pub client_alias: Option<String>,
 }
 
 impl Env {
@@ -54,7 +56,21 @@ impl Env {
     }
 
     pub fn client(&self, id: i64) -> Option<String> {
-        self.projects.get(&id).and_then(|p| p.client.clone())
+        let p = self.projects.get(&id)?;
+        if self.redact {
+            p.client_alias.clone()
+        } else {
+            p.client.clone()
+        }
+    }
+
+    pub fn real_client(&self, label: &str) -> String {
+        if self.redact {
+            if let Some(c) = self.projects.values().find(|p| p.client_alias.as_deref() == Some(label)).and_then(|p| p.client.clone()) {
+                return c;
+            }
+        }
+        label.to_string()
     }
 
     pub fn hide(&self, value: Option<String>) -> Option<String> {
@@ -68,24 +84,19 @@ impl Env {
 
 fn load_projects(c: &Connection) -> Result<HashMap<i64, ProjectLabel>> {
     let mut stmt = c.prepare("SELECT id, name, alias, path, client FROM projects")?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get(0)?, ProjectLabel { name: r.get(1)?, alias: r.get(2)?, path: r.get(3)?, client: r.get(4)? })))?
-        .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+    let mut rows = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, ProjectLabel { name: r.get(1)?, alias: r.get(2)?, path: r.get(3)?, client: r.get(4)?, client_alias: None }))
+        })?
+        .collect::<rusqlite::Result<HashMap<i64, ProjectLabel>>>()?;
+    for p in rows.values_mut() {
+        p.client_alias = p.client.as_deref().map(|cl| alias(c, "client", cl)).transpose()?;
+    }
     Ok(rows)
 }
 
-/// Stable pseudonym for a free-text value (branch names under redaction).
 /// Cost and tokens per model inside one bucket.
 pub(crate) type ModelAcc = std::collections::BTreeMap<String, (f64, i64)>;
-
-pub(crate) fn pseudonym(prefix: &str, value: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in value.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("{prefix}-{:06x}", h & 0xff_ffff)
-}
 
 pub(crate) fn agent_key(agent_type: &str) -> String {
     if agent_type.is_empty() {
@@ -126,9 +137,10 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
-    pub fn from_query(q: &Query) -> Filter {
+    pub fn from_query(q: &Query, env: &Env) -> Filter {
         let text = |v: &Option<String>| v.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        Filter { project: q.project, model: text(&q.model), agent: text(&q.agent), client: text(&q.client) }
+        let client = text(&q.client).map(|c| if c == UNASSIGNED { c } else { env.real_client(&c) });
+        Filter { project: q.project, model: text(&q.model), agent: text(&q.agent), client }
     }
 
     /// SQL conditions (each starting with ` AND `) for a table aliased `t`.

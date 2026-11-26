@@ -50,7 +50,7 @@ fn weekly_project_budget_warns_then_exceeds_once_per_period() {
     assert_eq!(title, "Budżet „Team” wykorzystany w 90%");
     assert_eq!(
         pl,
-        "Wydano 9,00 USD z tygodniowego budżetu 10,00 USD dla projektu shop (90%). Przy tym tempie wydatki na koniec tygodnia wyniosłyby 18,22 USD."
+        "Wydano 9,00\u{a0}$ z tygodniowego budżetu 10,00\u{a0}$ dla projektu shop (90%). Przy tym tempie wydatki na koniec tygodnia wyniosłyby 18,22\u{a0}$."
     );
     assert!(evaluate(&t.store, &ctx()).unwrap().is_empty());
 
@@ -89,10 +89,56 @@ fn project_budget_alerts_follow_redaction_at_read_time() {
     create_budget(&t.store, &ctx(), &input(BudgetScope::Project, Some(&p.to_string()), BudgetPeriod::Day, 10.0)).unwrap();
     evaluate(&t.store, &ctx()).unwrap();
     configure(&t, |s| s.privacy.redact_paths = true);
-    let alias = kanjo_core::store::write::project_alias("shop");
+    let alias = t.store.read(|c| kanjo_core::store::write::project_alias(c, "shop")).unwrap();
     let items = kanjo_alerts::list(&t.store, &ctx(), &Default::default()).unwrap().items;
     assert_eq!(items[0].params["scope_label"], alias.as_str());
     assert!(items[0].message.contains(&alias) && !items[0].message.contains("shop"));
+}
+
+#[test]
+fn a_utc_offset_change_does_not_repeat_a_budget_alert_in_the_same_period() {
+    let t = store();
+    let p = t.project("shop");
+    configure(&t, |s| s.currency = kanjo_core::settings::CurrencySettings { code: "EUR".into(), usd_rate: 0.5 });
+    let summer = kanjo_core::Ctx { now: NOW - 37 * DAY_MS + 2 * HOUR, tz_offset_min: 120, week_start: 0 };
+    let winter = kanjo_core::Ctx { now: NOW - 29 * DAY_MS + 2 * HOUR, tz_offset_min: 60, week_start: 0 };
+    spend(&t, p, "s", summer.now - 2 * HOUR, 20.0);
+    create_budget(&t.store, &summer, &input(BudgetScope::Global, None, BudgetPeriod::Month, 10.0)).unwrap();
+    let a = evaluate(&t.store, &summer).unwrap();
+    assert_eq!(of(&a, AlertKind::BudgetExceeded).len(), 1);
+    assert_eq!(a[0].message, "Spent €10.00, over the €5.00 monthly budget (200%).");
+    assert!(evaluate(&t.store, &winter).unwrap().is_empty(), "the October budget already fired");
+}
+
+#[test]
+fn client_names_are_hidden_under_redaction() {
+    let t = store();
+    let p = t.project("shop");
+    sql(&t, &format!("UPDATE projects SET client = 'ACME Corp' WHERE id = {p}"));
+    spend(&t, p, "s", NOW - HOUR, 20.0);
+    let alias = t.store.read(|c| kanjo_core::store::write::alias(c, "client", "ACME Corp")).unwrap();
+    let alias = alias.as_str();
+    create_budget(&t.store, &ctx(), &input(BudgetScope::Client, Some("ACME Corp"), BudgetPeriod::Day, 10.0)).unwrap();
+    assert!(evaluate(&t.store, &ctx()).unwrap()[0].message.contains("for client ACME Corp"));
+
+    configure(&t, |s| s.privacy.redact_paths = true);
+    let items = kanjo_alerts::list(&t.store, &ctx(), &Default::default()).unwrap().items;
+    assert_eq!((items[0].params["scope_value"].as_str(), items[0].params["scope_label"].as_str()), (Some(alias), Some(alias)));
+    assert!(items[0].message.contains(alias) && !items[0].message.contains("ACME"));
+    let b = &budgets(&t.store, &ctx()).unwrap()[0];
+    assert_eq!((b.scope_value.as_deref(), b.scope_label.as_deref()), (Some(alias), Some(alias)));
+
+    let weekly = create_budget(&t.store, &ctx(), &input(BudgetScope::Client, Some(alias), BudgetPeriod::Week, 10.0)).unwrap();
+    assert!((weekly.spent_usd - 20.0).abs() < 1e-9, "an alias resolves to the client it stands for");
+    let a = evaluate(&t.store, &ctx()).unwrap();
+    assert_eq!(a.len(), 1);
+    assert!(a[0].message.contains(alias) && !a[0].message.contains("ACME") && !a[0].params.to_string().contains("ACME"));
+
+    sql(&t, "UPDATE projects SET client = NULL");
+    update_budget(&t.store, &ctx(), weekly.id, &input(BudgetScope::Client, Some(alias), BudgetPeriod::Week, 20.0)).unwrap();
+    configure(&t, |s| s.privacy.redact_paths = false);
+    let b = budgets(&t.store, &ctx()).unwrap();
+    assert_eq!(b[1].scope_value.as_deref(), Some("ACME Corp"), "a client no project uses any more keeps its name");
 }
 
 #[test]

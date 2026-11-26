@@ -6,12 +6,13 @@
   import Button from '../../lib/ui/Button.svelte';
   import Card from '../../lib/ui/Card.svelte';
   import Icon from '../../lib/ui/Icon.svelte';
-  import { bytes } from './util';
+  import { bytes, lastActivity } from './util';
 
-  let { ingest, refreshing = false }: { ingest: IngestStatus; refreshing?: boolean } = $props();
+  let { ingest, lastRequestAt = null, refreshing = false }: { ingest: IngestStatus; lastRequestAt?: number | null; refreshing?: boolean } = $props();
   let busy = $state(false);
   let started = $state(false);
   const s = $derived(app.ingest && app.ingest.files_total === ingest.files_total ? app.ingest : ingest);
+  const last = $derived(lastActivity(s.last_event_at, lastRequestAt));
   const ratio = $derived(s.files_total ? s.files_done / s.files_total : 0);
 
   $effect(() => {
@@ -26,7 +27,7 @@
     try {
       app.ingest = await api().rescan();
       started = app.ingest.backfill_running;
-      if (started) toasts.push('info', t('system.ingest.rescan_started'));
+      toasts.push('info', t('system.ingest.rescan_started'));
       cache.invalidate(['system']);
     } catch (e) {
       toasts.push('error', describeError(e));
@@ -53,7 +54,7 @@
   <dl class="stats">
     <div><dt>{t('system.ingest.files')}</dt><dd class="num">{fmt.number(s.files_done)} / {fmt.number(s.files_total)}</dd></div>
     <div><dt>{t('system.ingest.requests')}</dt><dd class="num">{tn('units.requests', s.requests_stored)}</dd></div>
-    <div><dt>{t('system.ingest.last')}</dt><dd>{s.last_event_at ? fmt.ago(s.last_event_at) : t('system.ingest.never')}</dd></div>
+    <div><dt>{t('system.ingest.last')}</dt><dd>{last ? fmt.ago(last) : t('system.ingest.never')}</dd></div>
   </dl>
   <div class="rescan">
     <Button icon="refresh" busy={busy} disabled={busy || s.backfill_running} onclick={rescan}>{t('system.ingest.rescan')}</Button>

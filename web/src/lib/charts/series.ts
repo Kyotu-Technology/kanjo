@@ -9,20 +9,32 @@ const assigned = new Map<string, number>();
 
 export const OTHER = '__other__';
 
+/**
+ * Reads a Claude model id by rule: "claude-<family>-<major>[-<minor>][-<yyyymmdd>]"
+ * and the older "claude-<major>[-<minor>]-<family>[-<yyyymmdd>]". Anything else is not a Claude id.
+ */
+function parseModel(model: string): { family: string; version: string } | null {
+  const a = /^claude-([a-z]+)-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?$/i.exec(model);
+  const b = a ? null : /^claude-(\d{1,2})(?:-(\d{1,2}))?-([a-z]+)(?:-\d{8})?$/i.exec(model);
+  const [fam, major, minor] = a ? [a[1], a[2], a[3]] : b ? [b[3], b[1], b[2]] : [];
+  if (!fam || !major) return null;
+  return { family: fam.toLowerCase(), version: minor ? `${major}.${minor}` : major };
+}
+
 function family(model: string): string | null {
-  const m = /(opus|sonnet|haiku)/i.exec(model);
-  return m ? m[1].toLowerCase() : null;
+  return parseModel(model)?.family ?? null;
 }
 
 export function modelSlot(model: string): number | null {
   const f = family(model);
-  if (f) return FAMILY_SLOT[f];
-  const known = assigned.get(model);
+  if (f && FAMILY_SLOT[f]) return FAMILY_SLOT[f];
+  const key = f ?? model;
+  const known = assigned.get(key);
   if (known) return known;
   const used = new Set(assigned.values());
   for (let s = 4; s <= MAX_SLOT; s++) {
     if (!used.has(s)) {
-      assigned.set(model, s);
+      assigned.set(key, s);
       return s;
     }
   }
@@ -37,18 +49,23 @@ export function modelColor(model: string): string {
   return model === OTHER ? seriesColor(null) : seriesColor(modelSlot(model));
 }
 
-/** "claude-opus-4-5" -> "Opus 4.5"; unknown names are returned unchanged. */
+/** "claude-opus-4-5" -> "Opus 4.5", "claude-fable-5-2" -> "Fable 5.2"; other names are returned unchanged. */
 export function modelLabel(model: string): string {
-  const m = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i.exec(model);
-  if (!m) return model;
-  const name = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
-  return m[3] ? `${name} ${m[2]}.${m[3]}` : `${name} ${m[2]}`;
+  const p = parseModel(model);
+  if (!p) return model;
+  return `${p.family[0].toUpperCase()}${p.family.slice(1)} ${p.version}`;
+}
+
+/** The raw model id for a tooltip, when the friendly name hides it. */
+export function modelTitle(model: string): string | undefined {
+  return modelLabel(model) === model ? undefined : model;
 }
 
 export interface Series {
   key: string;
   label: string;
   color: string;
+  title?: string;
 }
 
 /**
@@ -60,7 +77,7 @@ export function modelSeries(totals: Map<string, number>, otherLabel: string, max
   const named = ranked.filter((m) => modelSlot(m) !== null).slice(0, max);
   const keep = new Set(named);
   const ordered = [...named].sort((a, b) => (modelSlot(a) ?? 99) - (modelSlot(b) ?? 99));
-  const series: Series[] = ordered.map((m) => ({ key: m, label: modelLabel(m), color: modelColor(m) }));
+  const series: Series[] = ordered.map((m) => ({ key: m, label: modelLabel(m), color: modelColor(m), title: modelTitle(m) }));
   if (ranked.some((m) => !keep.has(m))) series.push({ key: OTHER, label: otherLabel, color: seriesColor(null) });
   return { series, fold: (m) => (keep.has(m) ? m : OTHER) };
 }

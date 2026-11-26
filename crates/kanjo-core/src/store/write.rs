@@ -4,8 +4,10 @@
 use crate::model::{InsertOutcome, RequestRow, TokenCounts};
 use crate::pricing::PriceTable;
 use crate::time::hour_floor;
-use crate::Result;
+use crate::{Error, Result};
+use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
+use sha2::Sha256;
 
 /// Returns the id of the project with this directory key, creating it on first sight.
 pub fn upsert_project(tx: &Connection, key: &str, path: Option<&str>, ts: i64) -> Result<i64> {
@@ -24,7 +26,7 @@ pub fn upsert_project(tx: &Connection, key: &str, path: Option<&str>, ts: i64) -
     }
     tx.execute(
         "INSERT INTO projects (key, path, name, alias, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-        params![key, path, display_name(key, path), project_alias(key), ts],
+        params![key, path, display_name(key, path), project_alias(tx, key)?, ts],
     )?;
     Ok(tx.last_insert_rowid())
 }
@@ -36,15 +38,83 @@ fn display_name(key: &str, path: Option<&str>) -> String {
         .unwrap_or_else(|| key.to_string())
 }
 
-/// Stable pseudonym for a project, used wherever path redaction is on.
-pub fn project_alias(key: &str) -> String {
-    // FNV-1a, fixed here so aliases never change between builds.
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in key.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x100000001b3);
+/// Stable pseudonym for a project (by its directory key), stored in `projects.alias`.
+pub fn project_alias(conn: &Connection, key: &str) -> Result<String> {
+    alias(conn, "project", key)
+}
+
+/// Pseudonym for any name shown while path redaction is on (projects, branches,
+/// clients): `<prefix>-` and 6 hex characters of HMAC-SHA256 keyed with this
+/// installation's secret. The same input always gives the same alias in one
+/// database (and its backups), but the alias cannot be confirmed by hashing
+/// candidate names without the secret. Works on read-only connections.
+pub fn alias(conn: &Connection, prefix: &str, value: &str) -> Result<String> {
+    let raw: Option<String> =
+        conn.prepare_cached("SELECT value FROM settings WHERE key = 'alias_secret'")?.query_row([], |r| r.get(0)).optional()?;
+    let secret: String = serde_json::from_str(&raw.ok_or_else(|| Error::Invalid("the alias secret is missing".into()))?)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|e| Error::Other(e.to_string()))?;
+    mac.update(prefix.as_bytes());
+    mac.update(&[0]);
+    mac.update(value.as_bytes());
+    let digest = mac.finalize().into_bytes();
+    Ok(format!("{prefix}-{:02x}{:02x}{:02x}", digest[0], digest[1], digest[2]))
+}
+
+/// Recomputes every `projects.alias` (after the alias secret was created).
+pub(crate) fn refresh_project_aliases(tx: &Connection) -> Result<()> {
+    let keys: Vec<(i64, String)> = {
+        let mut stmt = tx.prepare("SELECT id, key FROM projects")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    for (id, key) in keys {
+        tx.execute("UPDATE projects SET alias = ?2 WHERE id = ?1", params![id, project_alias(tx, &key)?])?;
     }
-    format!("project-{:06x}", h & 0xff_ffff)
+    Ok(())
+}
+
+/// Scope of a purge mark: everything, one session, or one project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PurgeScope<'a> {
+    All,
+    Session(&'a str),
+    Project(i64),
+}
+
+/// Records that data with `ts < until` in `scope` was deleted, so it is never
+/// stored again. Marks only grow: an older mark is kept when it reaches further.
+pub fn mark_purged(tx: &Connection, scope: PurgeScope, until: i64) -> Result<()> {
+    let (kind, target) = match scope {
+        PurgeScope::All => ("all", String::new()),
+        PurgeScope::Session(id) => ("session", id.to_string()),
+        PurgeScope::Project(id) => ("project", id.to_string()),
+    };
+    exec(
+        tx,
+        "INSERT INTO purge_marks (scope, target, until) VALUES (?1, ?2, ?3)
+         ON CONFLICT (scope, target) DO UPDATE SET until = MAX(until, excluded.until)",
+        params![kind, target, until],
+    )?;
+    Ok(())
+}
+
+/// Whether a record of `session_id` (`""` for none) in `project_id` at `ts`
+/// falls inside a purge mark and must not be stored.
+pub fn is_purged(conn: &Connection, session_id: &str, project_id: Option<i64>, ts: i64) -> Result<bool> {
+    let project = project_id.map(|p| p.to_string()).unwrap_or_default();
+    Ok(conn
+        .prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM purge_marks WHERE ?3 < until AND (
+                (scope = 'all' AND target = '') OR (scope = 'session' AND target = ?1 AND ?1 != '')
+                OR (scope = 'project' AND target = ?2 AND ?2 != '')))",
+        )?
+        .query_row(params![session_id, project, ts], |r| r.get(0))?)
+}
+
+/// Removes every purge mark (for a database that is filled from scratch, such as the demo).
+pub fn clear_purge_marks(tx: &Connection) -> Result<()> {
+    exec(tx, "DELETE FROM purge_marks", [])?;
+    Ok(())
 }
 
 fn exec(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<usize> {
@@ -86,6 +156,9 @@ struct Delta {
 /// known message adds any tool uses not seen yet (one response is written as
 /// several records, one per content block) and changes totals only when it
 /// carries more tokens than before (a streaming record that was later completed).
+/// A new message inside a purge mark is not stored (`InsertOutcome::Purged`):
+/// it was deleted on request, or retention removed it after its usage was
+/// already counted in the aggregates.
 pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> Result<InsertOutcome> {
     let cost = prices.cost(&r.model, &r.tokens);
     let existing = tx
@@ -116,6 +189,9 @@ pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> R
         .optional()?;
 
     let Some(old) = existing else {
+        if is_purged(tx, &r.session_id, Some(r.project_id), r.ts)? {
+            return Ok(InsertOutcome::Purged);
+        }
         exec(
             tx,
             "INSERT INTO requests (message_id, request_id, session_id, project_id, ts, model,
@@ -500,9 +576,66 @@ mod tests {
     }
 
     #[test]
-    fn project_alias_is_stable() {
-        assert_eq!(project_alias("-home-dev-acme"), project_alias("-home-dev-acme"));
-        assert_ne!(project_alias("-home-dev-acme"), project_alias("-home-dev-other"));
-        assert!(project_alias("x").starts_with("project-"));
+    fn aliases_are_keyed_per_installation_and_stable() {
+        let a = testkit::TestStore::new();
+        let b = testkit::TestStore::new();
+        let of = |t: &testkit::TestStore, prefix: &str, v: &str| t.store.read(|c| alias(c, prefix, v)).unwrap();
+        assert_eq!(of(&a, "project", "-home-dev-acme"), of(&a, "project", "-home-dev-acme"));
+        assert_ne!(of(&a, "project", "-home-dev-acme"), of(&a, "project", "-home-dev-other"));
+        assert_ne!(of(&a, "project", "-home-dev-acme"), of(&b, "project", "-home-dev-acme"), "another installation, another alias");
+        assert_ne!(of(&a, "branch", "x")[7..], of(&a, "client", "x")[7..]);
+        assert!(of(&a, "client", "Acme").starts_with("client-"));
+        let fnv = {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for byte in b"-home-dev-acme" {
+                h ^= *byte as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            format!("project-{:06x}", h & 0xff_ffff)
+        };
+        assert_ne!(of(&a, "project", "-home-dev-acme"), fnv, "not the unkeyed hash");
+        a.project("acme");
+        let stored: String = a.store.read(|c| Ok(c.query_row("SELECT alias FROM projects WHERE key = 'acme'", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(stored, of(&a, "project", "acme"));
+        let path = a.store.path().to_path_buf();
+        drop(a.store);
+        let reopened = crate::Store::open(&path, None, None).unwrap();
+        assert_eq!(reopened.read(|c| alias(c, "project", "acme")).unwrap(), stored, "stable across restarts");
+    }
+
+    #[test]
+    fn purge_marks_keep_deleted_records_out() {
+        let t = testkit::TestStore::new();
+        let p = t.project("p1");
+        let other = t.project("p2");
+        let row = |id: &str, session: &str, project: i64, ts: i64| {
+            let mut r = testkit::request(id, session, ts, "claude-opus-5-5", 10, 5);
+            r.project_id = project;
+            r
+        };
+        let put = |r: &RequestRow| t.store.write(|tx| insert_request(tx, r, PriceTable::embedded())).unwrap();
+        t.store
+            .write(|tx| {
+                mark_purged(tx, PurgeScope::All, 1_000)?;
+                mark_purged(tx, PurgeScope::All, 500)?;
+                mark_purged(tx, PurgeScope::Session("s1"), 5_000)?;
+                mark_purged(tx, PurgeScope::Project(other), 7_000)
+            })
+            .unwrap();
+        assert_eq!(put(&row("m1", "s9", p, 999)), InsertOutcome::Purged, "the floor only grows");
+        assert_eq!(put(&row("m2", "s9", p, 1_000)), InsertOutcome::Inserted);
+        assert_eq!(put(&row("m3", "s1", p, 4_999)), InsertOutcome::Purged);
+        assert_eq!(put(&row("m4", "s1", p, 5_000)), InsertOutcome::Inserted, "later activity of a purged session is kept");
+        assert_eq!(put(&row("m5", "s2", other, 6_000)), InsertOutcome::Purged);
+        assert_eq!(put(&row("m6", "s2", other, 8_000)), InsertOutcome::Inserted);
+        let (n, hourly): (i64, i64) = t
+            .store
+            .read(|c| {
+                Ok(c.query_row("SELECT (SELECT count(*) FROM requests), (SELECT SUM(requests) FROM usage_hourly)", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?)
+            })
+            .unwrap();
+        assert_eq!((n, hourly), (3, 3));
     }
 }

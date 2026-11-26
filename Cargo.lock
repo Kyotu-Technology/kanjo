@@ -1007,10 +1007,12 @@ dependencies = [
 name = "kanjo-core"
 version = "0.1.0"
 dependencies = [
+ "hmac 0.13.0",
  "jiff",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.11.2",
  "tempfile",
  "thiserror",
  "toml",
@@ -1024,6 +1026,7 @@ name = "kanjo-ingest"
 version = "0.1.0"
 dependencies = [
  "kanjo-core",
+ "kanjo-ops",
  "memchr",
  "notify",
  "rusqlite",
@@ -1088,6 +1091,7 @@ dependencies = [
 name = "kanjo-setup"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
  "jiff",
  "kanjo-core",
  "serde",

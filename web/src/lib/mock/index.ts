@@ -258,7 +258,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
     }
     case 'DELETE /system/hooks':
       ds.hooks = { ...ds.hooks, statusline_installed: false, session_hooks_installed: false };
-      auditEntry(ds, 'hooks.remove', 'settings.json');
+      auditEntry(ds, 'hooks.uninstall', 'settings.json');
       return json(ds.hooks);
     case 'GET /system/backups':
       return json(ds.backups);

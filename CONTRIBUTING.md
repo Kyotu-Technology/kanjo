@@ -24,10 +24,12 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 (cd web && npm run check && npm test && npm run build)
 cargo deny check
+scripts/cargo-audit.sh
 scripts/egress-test.sh target/debug/kanjo
+sh scripts/test-install.sh
 ```
 
-`cargo deny` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny). The egress test needs Linux, `strace`, `unshare` and `ip`; it skips with a message when they are missing, and CI runs it in strict mode.
+`cargo deny` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and `scripts/cargo-audit.sh` needs [cargo-audit](https://github.com/rustsec/rustsec/tree/main/cargo-audit) and git; it audits against a fresh clone of the advisory database instead of `~/.cargo/advisory-db`. `scripts/test-install.sh` tests `install/install.sh` with stub tools in a temporary directory; on Windows, `scripts/test-install.ps1` does the same for `install.ps1`. The egress test needs Linux, `strace`, `unshare` and `ip`; it skips with a message when they are missing, and CI runs it in strict mode.
 
 ## Rules every change must follow
 

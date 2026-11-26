@@ -69,6 +69,18 @@ pub fn insert_sample(tx: &Connection, kind: LimitKind, s: &LimitSample) -> Resul
     Ok(true)
 }
 
+/// A reading this far past `now` was taken while the clock ran ahead.
+pub const CLOCK_AHEAD_TOLERANCE_MS: i64 = 5 * MINUTE_MS;
+
+/// Deletes readings of `kind` dated more than the tolerance after `now`. One
+/// such reading would otherwise reject every later one (readings must move
+/// forward in time) until real time caught up with it.
+pub fn discard_future(tx: &Connection, kind: LimitKind, now: i64) -> Result<usize> {
+    Ok(tx
+        .prepare_cached("DELETE FROM limit_samples WHERE kind = ?1 AND ts > ?2")?
+        .execute(params![kind.as_str(), now + CLOCK_AHEAD_TOLERANCE_MS])?)
+}
+
 fn row(r: &rusqlite::Row) -> rusqlite::Result<LimitSample> {
     Ok(LimitSample {
         ts: r.get(0)?,

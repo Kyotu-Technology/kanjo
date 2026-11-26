@@ -6,8 +6,9 @@
   import { router, navigate } from '../stores/router.svelte';
   import { theme } from '../stores/theme.svelte';
   import Icon, { type IconName } from '../ui/Icon.svelte';
-  import { exportView } from './actions';
-  import { NAV_ALL, navFor } from './nav';
+  import { runExport } from './actions';
+  import { pageExport } from './exports.svelte';
+  import { NAV_ALL } from './nav';
 
   interface Item {
     id: string;
@@ -40,7 +41,7 @@
       icon: n.icon,
       run: () => navigate(href(n.path)),
     }));
-    const view = navFor(router.current.name)?.exportView ?? 'usage';
+    const exp = pageExport.current;
     const actions: Item[] = [
       {
         id: 'act:theme',
@@ -56,7 +57,7 @@
         icon: 'globe' as IconName,
         run: () => void setLanguage(otherLang),
       },
-      { id: 'act:export', group: 'actions' as const, label: t('palette.export_view'), icon: 'download' as IconName, run: () => void exportView(view) },
+      ...(exp ? [{ id: 'act:export', group: 'actions' as const, label: t('palette.export_view'), icon: 'download' as IconName, run: () => void runExport(exp) }] : []),
     ].filter((a) => matches(a.label));
     const found: Item[] = results.map((r) => ({
       id: `res:${r.kind}:${r.id}`,

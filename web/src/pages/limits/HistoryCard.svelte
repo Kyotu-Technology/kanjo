@@ -6,6 +6,7 @@
   import DataTable from '../../lib/ui/DataTable.svelte';
   import EmptyState from '../../lib/ui/EmptyState.svelte';
   import Tabs from '../../lib/ui/Tabs.svelte';
+  import { limitLine } from './history';
 
   interface Props {
     h5: LimitPoint[];
@@ -15,16 +16,7 @@
   let { h5, h7, refreshing = false }: Props = $props();
   let tab = $state<'7d' | '5h'>('7d');
   const raw = $derived(tab === '5h' ? h5 : h7);
-  const points = $derived.by(() => {
-    if (tab === '7d') return raw.map((p) => ({ x: p.ts, y: p.used_pct }));
-    const out: { x: number; y: number }[] = [];
-    raw.forEach((p, i) => {
-      out.push({ x: p.ts, y: p.used_pct });
-      const next = raw[i + 1];
-      if ((!next || next.resets_at !== p.resets_at) && p.resets_at <= i18n.now) out.push({ x: p.resets_at, y: 0 });
-    });
-    return out.sort((a, b) => a.x - b.x);
-  });
+  const points = $derived(limitLine(raw, i18n.now));
   const name = $derived(tab === '5h' ? t('dashboard.limits.five_hour') : t('dashboard.limits.seven_day'));
   const peak = $derived(raw.reduce<LimitPoint | null>((m, p) => (!m || p.used_pct > m.used_pct ? p : m), null));
   const rows = $derived([...raw].reverse());

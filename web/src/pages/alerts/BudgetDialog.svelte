@@ -8,6 +8,7 @@
   import Dialog from '../../lib/ui/Dialog.svelte';
   import Select from '../../lib/ui/Select.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
+  import { scopes } from './scopes';
 
   interface Props {
     open: boolean;
@@ -101,7 +102,7 @@
       <Select
         label={t('pages.alerts.budget.scope')}
         bind:value={scope}
-        options={(['global', 'project', 'client', 'account'] as const).map((s) => ({ value: s, label: t(`pages.alerts.budget.scope_opt.${s}`) }))}
+        options={scopes(budget).map((s) => ({ value: s, label: t(`pages.alerts.budget.scope_opt.${s}`) }))}
       />
       {#if scope === 'project'}
         <Select label={t('pages.alerts.budget.project')} bind:value={project} options={projects.map((p) => ({ value: String(p.id), label: p.name }))} />

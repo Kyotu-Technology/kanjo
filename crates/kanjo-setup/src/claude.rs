@@ -297,7 +297,18 @@ pub fn status(paths: &Paths, config: &Config) -> Result<IntegrationStatus> {
 /// `config.statusline.chain_command`; the config is saved to `config.toml`
 /// before settings.json is written whenever that value changes.
 pub fn install(paths: &Paths, config: &mut Config, req: &HookInstallRequest, exe: &Path) -> Result<InstallReport> {
-    install_with(paths, config, req, exe, Shell::current(), kanjo_core::time::now_ms())
+    let home = home_arg(paths);
+    install_with(paths, config, req, exe, home.as_deref(), Shell::current(), kanjo_core::time::now_ms())
+}
+
+/// The data directory to name in the commands, as an absolute path, when it
+/// is not the platform default (`--home DIR` or `KANJO_HOME` at install time),
+/// so the statusline and the hooks write where this installation reads
+/// whatever directory Claude Code runs them from.
+pub fn home_arg(paths: &Paths) -> Option<PathBuf> {
+    let home = std::path::absolute(&paths.home).unwrap_or_else(|_| paths.home.clone());
+    let default = kanjo_core::paths::UserDirs::current().map(|d| d.kanjo_data_dir());
+    (default.as_deref() != Some(home.as_path())).then_some(home)
 }
 
 /// Removes Kanjo's statusLine (restoring the remembered command, if any) and
@@ -307,8 +318,8 @@ pub fn uninstall(paths: &Paths, config: &mut Config, exe: &Path) -> Result<Insta
     uninstall_with(paths, config, exe, kanjo_core::time::now_ms())
 }
 
-fn hook_handler(shell: Shell, exe: &Path) -> Value {
-    let mut h = json!({"type": "command", "command": shell::command_line(shell, exe, HOOK_ARG)});
+fn hook_handler(shell: Shell, exe: &Path, home: Option<&Path>) -> Value {
+    let mut h = json!({"type": "command", "command": shell::command_line_with(shell, exe, home, HOOK_ARG)});
     if shell == Shell::PowerShell {
         h["shell"] = json!("powershell");
     }
@@ -336,12 +347,13 @@ fn strip_kanjo_hooks(groups: &mut Vec<Value>, exe: Option<&Path>) -> usize {
     removed
 }
 
-/// `install` with an explicit shell and clock.
+/// `install` with an explicit data directory argument (see [`home_arg`]), shell and clock.
 pub fn install_with(
     paths: &Paths,
     config: &mut Config,
     req: &HookInstallRequest,
     exe: &Path,
+    home: Option<&Path>,
     shell: Shell,
     now_ms: i64,
 ) -> Result<InstallReport> {
@@ -349,7 +361,7 @@ pub fn install_with(
     let mut chain = chain_of(config, Some(exe));
 
     if req.statusline {
-        let cmd = shell::command_line(shell, exe, STATUSLINE_ARG);
+        let cmd = shell::command_line_with(shell, exe, home, STATUSLINE_ARG);
         match doc.root.get_mut("statusLine") {
             Some(Value::Object(entry)) => {
                 match entry.get("command").and_then(Value::as_str) {
@@ -368,7 +380,7 @@ pub fn install_with(
     }
 
     if req.session_hooks {
-        let handler = hook_handler(shell, exe);
+        let handler = hook_handler(shell, exe, home);
         let hooks = as_object(doc.root.entry("hooks").or_insert_with(|| json!({})), "hooks")?;
         for ev in HOOK_EVENTS {
             let groups = hooks.entry(ev).or_insert_with(|| json!([]));

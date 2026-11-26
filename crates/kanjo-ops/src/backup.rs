@@ -99,13 +99,25 @@ pub fn restore_with(paths: &Paths, config: &Config, file: &Path, keyring: Option
     remove_with_wal(&staging)?;
     std::fs::copy(&source, &staging)?;
     kanjo_core::paths::make_private_file(&staging)?;
+    let key_for_live = key.clone();
     let checked = check(&staging, key);
     if let Err(e) = checked {
         remove_with_wal(&staging)?;
         return Err(e);
     }
     let aside = sibling(&live, &format!(".pre-restore-{}", stamp(kanjo_core::time::now_ms())));
-    for suffix in ["", "-wal", "-shm"] {
+    // kanjo.db never goes missing: the live file gets a second name (the copy
+    // kept aside), its log is folded in and moved aside, and the checked backup
+    // then replaces it in one rename. A crash at any point leaves a database
+    // that opens with the key, never an empty one created in its place.
+    if live.exists() {
+        fold_wal(&live, key_for_live.as_ref());
+        if std::fs::hard_link(&live, &aside).is_err() {
+            std::fs::copy(&live, &aside)?;
+        }
+        kanjo_core::paths::make_private_file(&aside)?;
+    }
+    for suffix in ["-wal", "-shm"] {
         let from = sibling(&live, suffix);
         if from.exists() {
             std::fs::rename(&from, sibling(&aside, suffix))?;
@@ -120,6 +132,24 @@ pub fn restore_with(paths: &Paths, config: &Config, file: &Path, keyring: Option
     }
     tracing::info!(from = %source.display(), aside = %aside.display(), "database restored");
     Ok(())
+}
+
+/// Checkpoints the live database's write-ahead log into the file, so the file
+/// alone holds every committed change. Best effort: a damaged database (often
+/// the reason for a restore) is moved aside as it is.
+fn fold_wal(live: &Path, key: Option<&kanjo_core::store::DbKey>) {
+    let folded = (|| -> Result<()> {
+        let conn = rusqlite::Connection::open(live)?;
+        if let Some(key) = key {
+            // DbKey only holds validated hex, so formatting it into the pragma is safe.
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", key.as_hex()))?;
+        }
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
+    })();
+    if let Err(e) = folded {
+        tracing::warn!(error = %e, "the live database's log could not be checkpointed before the restore");
+    }
 }
 
 fn check(staging: &Path, key: Option<kanjo_core::store::DbKey>) -> Result<()> {
@@ -271,6 +301,31 @@ mod tests {
         let (store, _) = crate::open_store_with(&paths, &config, Some(&kr)).unwrap();
         assert_eq!(count(&store), 1);
         assert!(!paths.home.join("kanjo.db.restoring").exists());
+    }
+
+    #[test]
+    fn the_copy_kept_aside_opens_with_everything_the_live_database_held() {
+        let (_d, paths, config, kr) = setup();
+        let backup = {
+            let (store, _) = crate::open_store_with(&paths, &config, Some(&kr)).unwrap();
+            add(&store, "one");
+            let info = create(&store, &paths, 1_795_648_000_000).unwrap();
+            add(&store, "two");
+            info
+        };
+        restore_with(&paths, &config, Path::new(&backup.file), Some(&kr)).unwrap();
+        let aside = std::fs::read_dir(&paths.home)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| {
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                name.starts_with("kanjo.db.pre-restore-") && !name.ends_with("-wal") && !name.ends_with("-shm")
+            })
+            .unwrap();
+        let (key, _) = crate::keys::lookup(&paths, config.storage.encryption, Some(&kr)).unwrap().unwrap();
+        let kept = Store::open(&aside, Some(key), None).unwrap();
+        assert_eq!(count(&kept), 2, "the replaced database is kept whole");
     }
 
     #[test]

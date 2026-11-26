@@ -2,7 +2,7 @@
   import type { Breakdown, BreakdownRow, Dimension } from '../../lib/api/contract';
   import ChartCard from '../../lib/charts/ChartCard.svelte';
   import ShareBars from '../../lib/charts/ShareBars.svelte';
-  import { modelColor } from '../../lib/charts/series';
+  import { modelColor, modelTitle } from '../../lib/charts/series';
   import { fmt, t, tk, tn } from '../../lib/i18n/index.svelte';
   import ConfidenceBadge from '../../lib/ui/ConfidenceBadge.svelte';
   import DataTable, { type Column } from '../../lib/ui/DataTable.svelte';
@@ -76,6 +76,7 @@
           value: fmt.money(r.usage.cost_usd),
           share: r.share,
           color: shown === 'model' ? modelColor(r.key) : undefined,
+          title: shown === 'model' ? modelTitle(r.key) : undefined,
           href: linkFor(r),
         }))}
       />
@@ -87,7 +88,7 @@
       {#snippet cell(r, col)}
         {#if col.key === 'label'}
           {@const link = linkFor(r)}
-          {#if link}<a href={link}>{rowLabel(shown, r)}</a>{:else}{rowLabel(shown, r)}{/if}
+          {#if link}<a href={link} title={shown === 'model' ? modelTitle(r.key) : undefined}>{rowLabel(shown, r)}</a>{:else}<span title={shown === 'model' ? modelTitle(r.key) : undefined}>{rowLabel(shown, r)}</span>{/if}
         {:else if col.key === 'requests'}{fmt.number(r.usage.requests)}
         {:else if col.key === 'tokens'}{fmt.compact(tokens(r))}
         {:else if col.key === 'cost'}<Money usd={r.usage.cost_usd} confidence={data?.confidence ?? 'lower_bound'} unpriced={r.usage.unpriced_requests} size="sm" badge="none" />

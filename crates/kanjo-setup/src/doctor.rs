@@ -59,6 +59,10 @@ pub struct DoctorInput<'a> {
     /// Latest Claude Code version seen in transcripts or statusline payloads.
     pub claude_code_version: Option<String>,
     pub service: ServiceState,
+    /// A demo server with invented data: Claude Code, the statusline, the
+    /// service and encryption are deliberately not part of it, so those checks
+    /// say so instead of reporting problems.
+    pub demo: bool,
 }
 
 impl<'a> DoctorInput<'a> {
@@ -75,8 +79,17 @@ impl<'a> DoctorInput<'a> {
             quarantined_records: None,
             claude_code_version: None,
             service: ServiceState::NotInstalled,
+            demo: false,
         }
     }
+}
+
+/// True when `path` is a plain SQLite database, i.e. one that was created with
+/// `encryption = "off"` and can only be opened that way.
+pub fn is_plaintext_db(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 16];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head == b"SQLite format 3\0"
 }
 
 struct Lang {
@@ -168,30 +181,62 @@ fn count_transcripts(dir: &Path) -> std::io::Result<(usize, usize)> {
     Ok((projects, files))
 }
 
+/// Paths other users may read, with their mode.
 #[cfg(unix)]
-fn loose_permissions(paths: &Paths) -> Vec<String> {
+fn loose_permissions(paths: &Paths) -> Vec<(std::path::PathBuf, u32)> {
     use std::os::unix::fs::PermissionsExt;
-    let mut bad = Vec::new();
-    let entries = [
-        (paths.home.clone(), 0o077),
-        (paths.db(), 0o077),
-        (paths.key_file(), 0o077),
-        (paths.token_file(), 0o077),
-        (paths.config_file(), 0o077),
-    ];
-    for (p, mask) in entries {
-        if let Ok(m) = std::fs::metadata(&p) {
-            if m.permissions().mode() & mask != 0 {
-                bad.push(format!("{} ({:o})", p.display(), m.permissions().mode() & 0o777));
-            }
-        }
-    }
-    bad
+    let entries = [paths.home.clone(), paths.db(), paths.key_file(), paths.token_file(), paths.config_file()];
+    entries
+        .into_iter()
+        .filter_map(|p| {
+            let mode = std::fs::metadata(&p).ok()?.permissions().mode() & 0o777;
+            (mode & 0o077 != 0).then_some((p, mode))
+        })
+        .collect()
 }
 
 #[cfg(not(unix))]
-fn loose_permissions(_paths: &Paths) -> Vec<String> {
+fn loose_permissions(_paths: &Paths) -> Vec<(std::path::PathBuf, u32)> {
     Vec::new()
+}
+
+fn sh_quote(p: &Path) -> String {
+    format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"))
+}
+
+/// A command that restricts exactly the listed paths to their owner.
+fn chmod_fix(home: &Path, bad: &[(std::path::PathBuf, u32)]) -> String {
+    let mut parts = Vec::new();
+    if bad.iter().any(|(p, _)| p == home) {
+        parts.push(format!("chmod 700 {}", sh_quote(home)));
+    }
+    let files: Vec<String> = bad.iter().filter(|(p, _)| p != home).map(|(p, _)| sh_quote(p)).collect();
+    if !files.is_empty() {
+        parts.push(format!("chmod 600 {}", files.join(" ")));
+    }
+    parts.join(" && ")
+}
+
+/// The check ids a demo replaces, with what they say there.
+fn demo_check(l: &Lang, id: &str) -> Option<&'static str> {
+    let text = match id {
+        "claude_dir" | "projects" => {
+            ("demo: invented data; Claude Code's directory is not read", "demo: wymyślone dane; katalog Claude Code nie jest czytany")
+        }
+        "settings_json" | "statusline" | "chain" | "session_hooks" => (
+            "demo: Claude Code's settings.json is not read or changed",
+            "demo: plik settings.json Claude Code nie jest czytany ani zmieniany",
+        ),
+        "statusline_payload" => ("demo: the limit readings are invented", "demo: odczyty limitów są wymyślone"),
+        "encryption" => {
+            ("demo: not encrypted, because it holds only invented data", "demo: niezaszyfrowana, bo zawiera tylko wymyślone dane")
+        }
+        "quarantine" => ("demo: the set-aside records are invented examples", "demo: odłożone rekordy to wymyślone przykłady"),
+        "service" => ("demo: runs in this terminal, no background service", "demo: działa w tym terminalu, bez usługi w tle"),
+        "claude_code_version" | "cleanup_period" => ("demo: Claude Code is not involved", "demo: Claude Code nie bierze w tym udziału"),
+        _ => return None,
+    };
+    Some(if l.pl { text.1 } else { text.0 })
 }
 
 /// Runs every check. `lang` is `pl` for Polish, anything else gives English.
@@ -506,6 +551,7 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
         ));
     } else {
         let bad = loose_permissions(p);
+        let listed: Vec<String> = bad.iter().map(|(path, mode)| format!("{} ({mode:o})", path.display())).collect();
         if bad.is_empty() {
             out.push(check(
                 "data_dir",
@@ -519,8 +565,8 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
                 "data_dir",
                 CheckStatus::Warn,
                 title,
-                format!("{}: {}", l.t("readable by other users", "dostępne dla innych użytkowników"), bad.join(", ")),
-                Some(format!("chmod 700 '{0}' && chmod 600 '{0}'/kanjo.* '{0}'/access.token '{0}'/config.toml", p.home.display())),
+                format!("{}: {}", l.t("readable by other users", "dostępne dla innych użytkowników"), listed.join(", ")),
+                Some(chmod_fix(&p.home, &bad)),
             ));
         }
     }
@@ -557,9 +603,17 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
                         l.t("not encrypted", "niezaszyfrowana").into()
                     },
                     Some(if l.pl {
-                        format!("Ustaw encryption = \"auto\" w sekcji [storage] pliku {}.", p.config_file().display())
+                        format!(
+                            "Kanjo nie umie zaszyfrować istniejącej bazy, więc zostaw encryption = \"off\". Żeby zacząć od nowa z szyfrowaniem: przenieś {} w inne miejsce, ustaw encryption = \"auto\" w sekcji [storage] pliku {} i uruchom kanjo import (historia starsza niż transkrypty Claude Code przepadnie).",
+                            p.db().display(),
+                            p.config_file().display()
+                        )
                     } else {
-                        format!("Set encryption = \"auto\" in the [storage] section of {}.", p.config_file().display())
+                        format!(
+                            "Kanjo cannot encrypt an existing database, so keep encryption = \"off\". To start over encrypted: move {} elsewhere, set encryption = \"auto\" in the [storage] section of {} and run kanjo import (history older than Claude Code's transcripts is lost).",
+                            p.db().display(),
+                            p.config_file().display()
+                        )
                     }),
                 ));
             }
@@ -570,7 +624,19 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
                 CheckStatus::Fail,
                 title,
                 format!("{}: {err}", p.db().display()),
-                Some(if l.pl {
+                Some(if input.config.storage.encryption != EncryptionMode::Off && is_plaintext_db(&p.db()) {
+                    if l.pl {
+                        format!(
+                            "Ta baza nigdy nie była szyfrowana. Ustaw z powrotem encryption = \"off\" w sekcji [storage] pliku {}, żeby ją otworzyć.",
+                            p.config_file().display()
+                        )
+                    } else {
+                        format!(
+                            "This database was never encrypted. Set encryption = \"off\" again in the [storage] section of {} to open it.",
+                            p.config_file().display()
+                        )
+                    }
+                } else if l.pl {
                     format!(
                         "Sprawdź, czy klucz jest dostępny (odblokowany pęk kluczy albo plik {}); uszkodzoną bazę odtwórz z kopii w {}.",
                         p.key_file().display(),
@@ -706,8 +772,8 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
             },
             Some(
                 l.t(
-                    "Usually a newer Claude Code format; update Kanjo. The list is in Settings -> System.",
-                    "Zwykle to nowszy format Claude Code; zaktualizuj Kanjo. Lista jest w Ustawienia -> System.",
+                    "Usually a newer Claude Code format; update Kanjo. The list is on the System page of the dashboard.",
+                    "Zwykle to nowszy format Claude Code; zaktualizuj Kanjo. Lista jest na stronie System w pulpicie.",
                 )
                 .into(),
             ),
@@ -722,10 +788,22 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
         ServiceState::Stopped => (
             CheckStatus::Warn,
             l.t("installed but not running", "zainstalowana, ale nie działa"),
-            Some(if l.pl {
-                format!("Uruchom {up} ponownie albo sprawdź logi w {}.", p.log_dir().display())
-            } else {
-                format!("Run {up} again or check the logs in {}.", p.log_dir().display())
+            Some(match std::env::consts::OS {
+                "linux" => l
+                    .t(
+                        "Run kanjo service install to start it again; journalctl --user -u kanjo.service shows why it stopped.",
+                        "Uruchom kanjo service install, żeby ją znowu włączyć; journalctl --user -u kanjo.service pokaże, dlaczego stanęła.",
+                    )
+                    .to_string(),
+                "macos" => {
+                    let log = p.log_dir().join("service.log");
+                    if l.pl {
+                        format!("Uruchom kanjo service install, żeby ją znowu włączyć; powód zatrzymania jest w {}.", log.display())
+                    } else {
+                        format!("Run kanjo service install to start it again; {} shows why it stopped.", log.display())
+                    }
+                }
+                _ => l.t("Run kanjo service install to start it again.", "Uruchom kanjo service install, żeby ją znowu włączyć.").to_string(),
             }),
         ),
         ServiceState::NotInstalled => (
@@ -824,6 +902,15 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
         out.push(check("cleanup_period", CheckStatus::Ok, title, detail, None));
     }
 
+    if input.demo {
+        for c in &mut out {
+            if let Some(text) = demo_check(&l, &c.id) {
+                c.status = CheckStatus::Ok;
+                c.detail = text.to_string();
+                c.fix = None;
+            }
+        }
+    }
     let order = |c: &DoctorCheck| CHECK_IDS.iter().position(|id| *id == c.id).unwrap_or(CHECK_IDS.len());
     out.sort_by_key(order);
     out

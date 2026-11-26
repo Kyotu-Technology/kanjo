@@ -228,6 +228,11 @@ async fn retention(state: AppState) {
             + report.quarantine;
         if removed > 0 {
             tracing::info!(?report, "retention removed expired rows");
+            let detail = serde_json::json!({ "report": report, "settings": settings.retention, "user": kanjo_ops::audit::actor() });
+            let now = kanjo_core::time::now_ms();
+            inner.store.write(|tx| {
+                kanjo_ops::audit::record_tx(tx, now, crate::handlers::ACTOR_SERVICE, "retention.apply", "retention", &detail)
+            })?;
             inner.publish(LiveEvent::Usage { requests: 0, cost_usd: 0.0, sessions: Vec::new() });
         }
         Ok(())

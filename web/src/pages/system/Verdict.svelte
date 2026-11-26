@@ -2,9 +2,10 @@
   import type { SystemInfo } from '../../lib/api/contract';
   import { fmt, t, tn } from '../../lib/i18n/index.svelte';
   import Icon from '../../lib/ui/Icon.svelte';
-  import { address, isLoopback, scrollToSection } from './util';
+  import { address, isLoopback, lastActivity, scrollToSection } from './util';
 
-  let { d, chainOk = true }: { d: SystemInfo; chainOk?: boolean } = $props();
+  let { d, chainOk = true, lastRequestAt = null }: { d: SystemInfo; chainOk?: boolean; lastRequestAt?: number | null } = $props();
+  const last = $derived(lastActivity(d.ingest.last_event_at, lastRequestAt));
   const fails = $derived([
     ...d.checks.filter((c) => c.status === 'fail'),
     ...(chainOk ? [] : [{ id: 'audit', status: 'fail' as const, title: t('system.audit.chain_title'), detail: '', fix: null }]),
@@ -25,7 +26,7 @@
         {d.claude_code_version
           ? t('system.verdict.body', { version: d.version, address: addr, cc: d.claude_code_version })
           : t('system.verdict.body_no_cc', { version: d.version, address: addr })}
-        {d.ingest.last_event_at ? t('system.verdict.last', { ago: fmt.ago(d.ingest.last_event_at) }) : t('system.verdict.none_yet')}
+        {last ? t('system.verdict.last', { ago: fmt.ago(last) }) : t('system.verdict.none_yet')}
       </p>
       {#if issues.length}
         <ul class="issues">

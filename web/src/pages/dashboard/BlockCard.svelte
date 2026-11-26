@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Block, BurnRate, Confidence } from '../../lib/api/contract';
-  import { modelColor, modelLabel } from '../../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, i18n, t } from '../../lib/i18n/index.svelte';
   import Card from '../../lib/ui/Card.svelte';
   import EmptyState from '../../lib/ui/EmptyState.svelte';
@@ -32,13 +32,15 @@
         <dt><Icon name="bolt" size={15} />{t('dashboard.block.burn')}</dt>
         <dd>
           {#if burn.active}
-            <Money usd={block.burn_usd_per_hour ?? burn.usd_per_hour} confidence="estimate" badge="none" />
+            <Money usd={burn.usd_per_hour} confidence="estimate" badge="none" />
             <span class="unit">{t('dashboard.block.per_hour')}</span>
             <ConfidenceBadge confidence="estimate" compact />
           {:else}
             <span class="quiet">{t('dashboard.block.idle', { minutes: burn.window_minutes })}</span>
           {/if}
         </dd>
+        {#if burn.active}<p class="note">{t('dashboard.block.burn_meta', { tokens: fmt.compact(burn.tokens_per_min), minutes: fmt.number(burn.window_minutes) })}</p>{/if}
+        {#if block.burn_usd_per_hour !== null}<p class="note">{t('dashboard.block.burn_block', { value: fmt.money(block.burn_usd_per_hour) })}</p>{/if}
       </div>
       <div>
         <dt><Icon name="clock" size={15} />{t('dashboard.block.projected')}</dt>
@@ -57,7 +59,7 @@
       </div>
       <ul class="models">
         {#each block.by_model as r (r.key)}
-          <li><span class="key" style="background:{modelColor(r.key)}"></span>{modelLabel(r.key)}<span class="v">{fmt.money(r.usage.cost_usd)}</span></li>
+          <li title={modelTitle(r.key)}><span class="key" style="background:{modelColor(r.key)}"></span>{modelLabel(r.key)}<span class="v">{fmt.money(r.usage.cost_usd)}</span></li>
         {/each}
       </ul>
     {/if}
@@ -96,7 +98,7 @@
   }
   .pair {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--sp-4);
     margin-top: var(--sp-5);
     padding-top: var(--sp-4);

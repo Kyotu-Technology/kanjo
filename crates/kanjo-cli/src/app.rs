@@ -42,6 +42,12 @@ impl App {
                 ),
             )
         })?;
+        let mut paths = paths;
+        for dir in [&mut paths.home, &mut paths.claude_dir] {
+            if let Ok(abs) = std::path::absolute(&*dir) {
+                *dir = abs;
+            }
+        }
         let config = Config::load(&paths).map_err(|e| {
             fail(
                 tr!(lang, "the configuration file cannot be read ({e}).", "nie można odczytać pliku konfiguracji ({e})."),
@@ -67,6 +73,9 @@ impl App {
         }
         if !create && !self.paths.db().exists() {
             return Err(self.no_data());
+        }
+        if let Some(f) = plain_database(self.lang, &self.paths, &self.config) {
+            return Err(f);
         }
         let (store, source) = kanjo_ops::open_store(&self.paths, &self.config)?;
         let settings = Settings::load(&store)?;
@@ -124,10 +133,17 @@ impl App {
         ctx
     }
 
-    /// Records an audit entry when the database is open; failures are reported but do not undo the action.
+    /// Records an audit entry with the actor `cli` (and the OS user as
+    /// `detail.user`) when the database is open; failures are reported but do
+    /// not undo the action.
     pub fn audit(&mut self, action: &str, target: &str, detail: serde_json::Value) {
         let Some((store, _)) = &self.store else { return };
-        if let Err(e) = kanjo_ops::audit::record(store, action, target, detail) {
+        let mut detail = detail;
+        if let Some(map) = detail.as_object_mut() {
+            map.insert("user".into(), serde_json::Value::String(kanjo_ops::audit::actor()));
+        }
+        let now = kanjo_core::time::now_ms();
+        if let Err(e) = store.write(|tx| kanjo_ops::audit::record_tx(tx, now, ACTOR_CLI, action, target, &detail)) {
             eprintln!(
                 "{}",
                 tr!(
@@ -192,6 +208,31 @@ impl App {
             yes_flag_hint.to_string(),
         ))
     }
+}
+
+/// Actor of the audit entries the command line writes.
+pub const ACTOR_CLI: &str = "cli";
+
+/// The failure for a database that was created unencrypted while config.toml
+/// now asks for encryption: Kanjo would refuse it as a lost key.
+pub fn plain_database(lang: Lang, paths: &Paths, config: &Config) -> Option<Failure> {
+    let plain = config.storage.encryption != kanjo_core::config::EncryptionMode::Off && kanjo_setup::doctor::is_plaintext_db(&paths.db());
+    plain.then(|| {
+        fail(
+            tr!(
+                lang,
+                "the database {} was never encrypted, but config.toml asks for encryption.",
+                "baza {} nigdy nie była szyfrowana, a config.toml wymaga szyfrowania.",
+                paths.db().display()
+            ),
+            tr!(
+                lang,
+                "set encryption = \"off\" again in the [storage] section of {}; Kanjo cannot encrypt an existing database (once it opens, \"kanjo doctor\" explains how to start over encrypted).",
+                "ustaw z powrotem encryption = \"off\" w sekcji [storage] pliku {}; Kanjo nie umie zaszyfrować istniejącej bazy (gdy już się otworzy, \"kanjo doctor\" wyjaśni, jak zacząć od nowa z szyfrowaniem).",
+                paths.config_file().display()
+            ),
+        )
+    })
 }
 
 pub fn prompt(text: &str) -> CliResult<String> {

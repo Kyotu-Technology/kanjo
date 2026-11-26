@@ -2,7 +2,8 @@
   Kanjo design tokens. Light values live on :root; dark values are their own
   selected steps, applied by data-theme="dark". The theme store (and the inline
   script in index.html, before first paint) resolves "system" to light or dark,
-  so there is exactly one place for each value.
+  so there is exactly one place for each value. The dark values apply on screen
+  only, so a printout always uses the light palette whatever the screen theme.
 */
 :root {
   color-scheme: light;
@@ -110,52 +111,54 @@
   --dur: 200ms;
 }
 
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --paper: #0d121b;
-  --surface: #151b27;
-  --surface-2: #1b2231;
-  --surface-3: #232c3d;
-  --ink: #e7ebf2;
-  --ink-2: #b2bccb;
-  --ink-3: #8f9aae;
-  --ink-inverse: #0d121b;
-  --line: #252e3e;
-  --line-strong: #3a4558;
-  --control-border: #64718a;
-  --accent: #8fa6ff;
-  --accent-hover: #aebfff;
-  --accent-soft: #1e2847;
-  --accent-ink: #0d121b;
-  --focus: #8fa6ff;
-  --good-ink: #5fcf6b;
-  --warning-ink: #f6c453;
-  --serious-ink: #f4a17a;
-  --critical-ink: #f08a8a;
-  --good-soft: #15301d;
-  --warning-soft: #33280e;
-  --serious-soft: #3a2218;
-  --critical-soft: #3b1a1c;
-  --series-1: #338ced;
-  --series-2: #e76624;
-  --series-3: #00a888;
-  --series-4: #d28e05;
-  --series-5: #e24d8b;
-  --series-6: #0aac23;
-  --series-other: #6b7487;
-  --seq-0: #1b2231;
-  --seq-1: #1a3157;
-  --seq-2: #1b4c8e;
-  --seq-3: #1b64be;
-  --seq-4: #338ced;
-  --seq-5: #6aabf1;
-  --seq-6: #b6d5f8;
-  --meter-track: #243151;
-  --meter-fill: #8fa6ff;
-  --grid: #222b3a;
-  --axis: #3c4659;
-  --shadow-overlay: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
-  --shadow-raise: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --scrim: rgba(0, 0, 0, 0.6);
+@media screen {
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --paper: #0d121b;
+    --surface: #151b27;
+    --surface-2: #1b2231;
+    --surface-3: #232c3d;
+    --ink: #e7ebf2;
+    --ink-2: #b2bccb;
+    --ink-3: #8f9aae;
+    --ink-inverse: #0d121b;
+    --line: #252e3e;
+    --line-strong: #3a4558;
+    --control-border: #64718a;
+    --accent: #8fa6ff;
+    --accent-hover: #aebfff;
+    --accent-soft: #1e2847;
+    --accent-ink: #0d121b;
+    --focus: #8fa6ff;
+    --good-ink: #5fcf6b;
+    --warning-ink: #f6c453;
+    --serious-ink: #f4a17a;
+    --critical-ink: #f08a8a;
+    --good-soft: #15301d;
+    --warning-soft: #33280e;
+    --serious-soft: #3a2218;
+    --critical-soft: #3b1a1c;
+    --series-1: #338ced;
+    --series-2: #e76624;
+    --series-3: #00a888;
+    --series-4: #d28e05;
+    --series-5: #e24d8b;
+    --series-6: #0aac23;
+    --series-other: #6b7487;
+    --seq-0: #1b2231;
+    --seq-1: #1a3157;
+    --seq-2: #1b4c8e;
+    --seq-3: #1b64be;
+    --seq-4: #338ced;
+    --seq-5: #6aabf1;
+    --seq-6: #b6d5f8;
+    --meter-track: #243151;
+    --meter-fill: #8fa6ff;
+    --grid: #222b3a;
+    --axis: #3c4659;
+    --shadow-overlay: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+    --shadow-raise: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --scrim: rgba(0, 0, 0, 0.6);
+  }
 }
 

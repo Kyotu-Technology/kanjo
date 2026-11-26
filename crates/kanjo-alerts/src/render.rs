@@ -2,7 +2,8 @@
 //! read time, so switching the language re-renders old alerts too.
 
 use kanjo_core::api::AlertKind;
-use kanjo_core::time::{DAY_MS, MINUTE_MS};
+use kanjo_core::settings::CurrencySettings;
+use kanjo_core::time::{utc_datetime, DAY_MS, MINUTE_MS};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,10 +12,21 @@ enum Lang {
     Pl,
 }
 
-/// Title and message of an alert. `lang` is `pl` (or `pl-PL`) for Polish; anything else gives English.
+pub(crate) struct Style<'a> {
+    pub lang: &'a str,
+    pub currency: &'a CurrencySettings,
+    pub now: Option<i64>,
+}
+
+/// Title and message of an alert in USD, worded as on the day it was created.
+/// `lang` is `pl` (or `pl-PL`) for Polish; anything else gives English.
 pub fn render(kind: AlertKind, params: &Value, lang: &str) -> (String, String) {
-    let lang = if lang.trim().to_ascii_lowercase().starts_with("pl") { Lang::Pl } else { Lang::En };
-    let p = P(params);
+    render_styled(kind, params, &Style { lang, currency: &CurrencySettings::default(), now: None })
+}
+
+pub(crate) fn render_styled(kind: AlertKind, params: &Value, style: &Style) -> (String, String) {
+    let lang = if style.lang.trim().to_ascii_lowercase().starts_with("pl") { Lang::Pl } else { Lang::En };
+    let p = P { v: params, currency: style.currency, now: style.now };
     match kind {
         AlertKind::LimitThreshold => limit_threshold(lang, &p),
         AlertKind::LimitForecast => limit_forecast(lang, &p),
@@ -29,31 +41,100 @@ pub fn render(kind: AlertKind, params: &Value, lang: &str) -> (String, String) {
     }
 }
 
-struct P<'a>(&'a Value);
+struct P<'a> {
+    v: &'a Value,
+    currency: &'a CurrencySettings,
+    now: Option<i64>,
+}
 
 impl P<'_> {
     fn opt_f(&self, k: &str) -> Option<f64> {
-        self.0.get(k).and_then(Value::as_f64)
+        self.v.get(k).and_then(Value::as_f64)
     }
     fn f(&self, k: &str) -> f64 {
         self.opt_f(k).unwrap_or(0.0)
     }
     fn opt_i(&self, k: &str) -> Option<i64> {
-        self.0.get(k).and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        self.v.get(k).and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
     }
     fn i(&self, k: &str) -> i64 {
         self.opt_i(k).unwrap_or(0)
     }
     fn opt_s(&self, k: &str) -> Option<&str> {
-        self.0.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
+        self.v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
     }
     fn s(&self, k: &str) -> &str {
         self.opt_s(k).unwrap_or("")
     }
-    /// Reference moment for "today" / "tomorrow": when the alert was evaluated.
+    /// The moment `k` relative to when the alert was evaluated, or as a date once that day is over.
     fn when(&self, lang: Lang, k: &str) -> String {
         let ts = self.i(k);
-        when(lang, ts, self.opt_i("evaluated_at").unwrap_or(ts), self.i("tz_offset_min"))
+        let created = self.opt_i("evaluated_at").or(self.now).unwrap_or(ts);
+        when(lang, ts, created, self.now.unwrap_or(created), self.i("tz_offset_min"))
+    }
+
+    fn date(&self, lang: Lang, k: &str) -> String {
+        let raw = self.s(k);
+        let parts: Vec<i64> = raw.split('-').filter_map(|x| x.parse().ok()).collect();
+        let [y, m, d] = parts[..] else { return raw.to_string() };
+        if !(1..=12).contains(&m) {
+            return raw.to_string();
+        }
+        let this_year = self.now.map(|n| utc_datetime(n + self.i("tz_offset_min") * MINUTE_MS).year() as i64).unwrap_or(y);
+        let date = date_words(lang, y, m, d, this_year);
+        match lang {
+            Lang::En => format!("on {date}"),
+            Lang::Pl => format!("w dniu {date}"),
+        }
+    }
+
+    fn money(&self, lang: Lang, usd: f64) -> String {
+        let rate = self.currency.usd_rate;
+        let value = usd * if rate.is_finite() && rate > 0.0 { rate } else { 1.0 };
+        let code = self.currency.code.trim().to_ascii_uppercase();
+        let symbol = currency_symbol(if code.is_empty() { "USD" } else { &code });
+        let places = if value.abs() >= 1000.0 { 0 } else { 2 };
+        let digits = format!("{:.places$}", value.abs());
+        let (int, frac) = digits.split_once('.').unwrap_or((&digits, ""));
+        let (group, point, min_grouped) = match lang {
+            Lang::En => (",", ".", 4),
+            Lang::Pl => ("\u{a0}", ",", 5),
+        };
+        let mut number = String::new();
+        for (i, c) in int.chars().enumerate() {
+            if i > 0 && int.len() >= min_grouped && (int.len() - i) % 3 == 0 {
+                number.push_str(group);
+            }
+            number.push(c);
+        }
+        if !frac.is_empty() {
+            number.push_str(point);
+            number.push_str(frac);
+        }
+        let sign = if value < 0.0 && digits.chars().any(|c| c.is_ascii_digit() && c != '0') { "-" } else { "" };
+        match lang {
+            Lang::En if symbol.ends_with(char::is_alphabetic) => format!("{sign}{symbol}\u{a0}{number}"),
+            Lang::En => format!("{sign}{symbol}{number}"),
+            Lang::Pl => format!("{sign}{number}\u{a0}{symbol}"),
+        }
+    }
+}
+
+fn currency_symbol(code: &str) -> &str {
+    match code {
+        "USD" | "AUD" | "CAD" | "NZD" | "MXN" => "$",
+        "EUR" => "€",
+        "GBP" => "£",
+        "JPY" | "CNY" => "¥",
+        "PLN" => "zł",
+        "CZK" => "Kč",
+        "SEK" | "NOK" | "DKK" => "kr",
+        "HUF" => "Ft",
+        "INR" => "₹",
+        "UAH" => "₴",
+        "KRW" => "₩",
+        "BRL" => "R$",
+        other => other,
     }
 }
 
@@ -66,13 +147,6 @@ fn decimal(lang: Lang, v: f64, places: usize) -> String {
     match lang {
         Lang::En => s,
         Lang::Pl => s.replace('.', ","),
-    }
-}
-
-fn money(lang: Lang, v: f64) -> String {
-    match lang {
-        Lang::En => format!("${v:.2}"),
-        Lang::Pl => format!("{} USD", decimal(lang, v, 2)),
     }
 }
 
@@ -109,34 +183,51 @@ fn en_plural<'a>(n: i64, one: &'a str, many: &'a str) -> &'a str {
 
 const EN_DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const PL_DAYS: [&str; 7] = ["w poniedziałek", "we wtorek", "w środę", "w czwartek", "w piątek", "w sobotę", "w niedzielę"];
+const EN_MONTHS: [&str; 12] =
+    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const PL_MONTHS: [&str; 12] =
+    ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
 
-/// Local day and time of `ts` relative to `reference`: "today at 14:00", "on Thursday at 14:00".
-fn when(lang: Lang, ts: i64, reference: i64, tz_offset_min: i64) -> String {
+fn date_words(lang: Lang, y: i64, m: i64, d: i64, this_year: i64) -> String {
+    let month = match lang {
+        Lang::En => EN_MONTHS[(m - 1) as usize],
+        Lang::Pl => PL_MONTHS[(m - 1) as usize],
+    };
+    if y == this_year {
+        format!("{d} {month}")
+    } else {
+        format!("{d} {month} {y}")
+    }
+}
+
+/// Local day and time of `ts` relative to `created`, the day the alert was evaluated:
+/// "today at 14:00", "on Thursday at 14:00", "on 3 December at 09:00". When `read`
+/// falls on a later local day than `created`, the moment is always written as a date.
+fn when(lang: Lang, ts: i64, created: i64, read: i64, tz_offset_min: i64) -> String {
     let off = tz_offset_min * MINUTE_MS;
-    let day = (ts + off).div_euclid(DAY_MS);
-    let ref_day = (reference + off).div_euclid(DAY_MS);
+    let local_day = |t: i64| (t + off).div_euclid(DAY_MS);
+    let (day, ref_day) = (local_day(ts), local_day(created));
+    let delta = if local_day(read) == ref_day { Some(day - ref_day) } else { None };
     let minutes = (ts + off).rem_euclid(DAY_MS) / MINUTE_MS;
-    let (h, m) = (minutes / 60, minutes % 60);
+    let time = format!("{:02}:{:02}", minutes / 60, minutes % 60);
     let weekday = (day + 3).rem_euclid(7) as usize;
+    let civil = utc_datetime(ts + off);
+    let date = date_words(lang, civil.year() as i64, civil.month() as i64, civil.day() as i64, utc_datetime(read + off).year() as i64);
     match lang {
-        Lang::En => {
-            let time = format!("{h:02}:{m:02}");
-            match day - ref_day {
-                0 => format!("today at {time}"),
-                1 => format!("tomorrow at {time}"),
-                -1 => format!("yesterday at {time}"),
-                _ => format!("on {} at {time}", EN_DAYS[weekday]),
-            }
-        }
-        Lang::Pl => {
-            let time = format!("{h}:{m:02}");
-            match day - ref_day {
-                0 => format!("dziś o {time}"),
-                1 => format!("jutro o {time}"),
-                -1 => format!("wczoraj o {time}"),
-                _ => format!("{} o {time}", PL_DAYS[weekday]),
-            }
-        }
+        Lang::En => match delta {
+            Some(0) => format!("today at {time}"),
+            Some(1) => format!("tomorrow at {time}"),
+            Some(-1) => format!("yesterday at {time}"),
+            Some(2..=6) => format!("on {} at {time}", EN_DAYS[weekday]),
+            _ => format!("on {date} at {time}"),
+        },
+        Lang::Pl => match delta {
+            Some(0) => format!("dziś o {time}"),
+            Some(1) => format!("jutro o {time}"),
+            Some(-1) => format!("wczoraj o {time}"),
+            Some(2..=6) => format!("{} o {time}", PL_DAYS[weekday]),
+            _ => format!("{date} o {time}"),
+        },
     }
 }
 
@@ -211,9 +302,9 @@ fn budget_scope(lang: Lang, p: &P) -> String {
 fn budget_warning(lang: Lang, p: &P) -> (String, String) {
     let name = p.s("name");
     let (en_adj, en_noun, pl_gen, _, pl_noun) = period(p.s("period"));
-    let spent = money(lang, p.f("spent_usd"));
-    let amount = money(lang, p.f("amount_usd"));
-    let projected = money(lang, p.f("projected_usd"));
+    let spent = p.money(lang, p.f("spent_usd"));
+    let amount = p.money(lang, p.f("amount_usd"));
+    let projected = p.money(lang, p.f("projected_usd"));
     let share = pct(p.f("spent_pct"));
     let scope = budget_scope(lang, p);
     match lang {
@@ -233,8 +324,8 @@ fn budget_warning(lang: Lang, p: &P) -> (String, String) {
 fn budget_exceeded(lang: Lang, p: &P) -> (String, String) {
     let name = p.s("name");
     let (en_adj, _, _, pl_acc, _) = period(p.s("period"));
-    let spent = money(lang, p.f("spent_usd"));
-    let amount = money(lang, p.f("amount_usd"));
+    let spent = p.money(lang, p.f("spent_usd"));
+    let amount = p.money(lang, p.f("amount_usd"));
     let share = pct(p.f("spent_pct"));
     let scope = budget_scope(lang, p);
     match lang {
@@ -247,21 +338,19 @@ fn budget_exceeded(lang: Lang, p: &P) -> (String, String) {
 }
 
 fn cost_spike(lang: Lang, p: &P) -> (String, String) {
-    let date = p.s("date");
-    let cost = money(lang, p.f("cost_usd"));
-    let median = money(lang, p.f("median_usd"));
+    let date = p.date(lang, "date");
+    let cost = p.money(lang, p.f("cost_usd"));
+    let median = p.money(lang, p.f("median_usd"));
     let factor = decimal(lang, p.f("factor"), 1);
     let days = p.i("baseline_days");
     match lang {
         Lang::En => (
             "Unusually expensive day".into(),
-            format!("Cost on {date} reached {cost}, {factor} times the median day ({median} over the last {days} active days)."),
+            format!("Cost {date} reached {cost}, {factor} times the median day ({median} over the last {days} active days)."),
         ),
         Lang::Pl => (
             "Nietypowo drogi dzień".into(),
-            format!(
-                "Koszt w dniu {date} sięgnął {cost}, czyli {factor} raza więcej niż mediana ({median} z ostatnich {days} aktywnych dni)."
-            ),
+            format!("Koszt {date} sięgnął {cost}, czyli {factor} raza więcej niż mediana ({median} z ostatnich {days} aktywnych dni)."),
         ),
     }
 }
@@ -278,8 +367,8 @@ fn session_ref(lang: Lang, p: &P) -> String {
 
 fn runaway_session(lang: Lang, p: &P) -> (String, String) {
     let session = session_ref(lang, p);
-    let cost = money(lang, p.f("cost_usd"));
-    let median = money(lang, p.f("median_usd"));
+    let cost = p.money(lang, p.f("cost_usd"));
+    let median = p.money(lang, p.f("median_usd"));
     let factor = decimal(lang, p.f("factor"), 1);
     match lang {
         Lang::En => {
@@ -328,7 +417,7 @@ fn cache_cold(lang: Lang, p: &P) -> (String, String) {
     let session = session_ref(lang, p);
     let at = p.when(lang, "expired_at");
     let n = tokens(lang, p.i("recache_tokens"));
-    let usd = p.opt_f("recache_usd").map(|v| money(lang, v));
+    let usd = p.opt_f("recache_usd").map(|v| p.money(lang, v));
     match lang {
         Lang::En => {
             let cost = usd.map(|u| format!(" (about {u})")).unwrap_or_default();
@@ -422,10 +511,44 @@ mod tests {
         // 2026-11-26T10:00Z is a Thursday; 13:00Z is 14:00 in Warsaw winter time.
         let now = 1_795_687_200_000;
         let thu_13z = now + 3 * 3_600_000;
-        assert_eq!(when(Lang::En, thu_13z, now, 60), "today at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, 60), "jutro o 14:00");
-        assert_eq!(when(Lang::En, thu_13z + 2 * DAY_MS, now, 60), "on Saturday at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z + 5 * DAY_MS - 5 * 3_600_000, now, 60), "we wtorek o 9:00");
+        assert_eq!(when(Lang::En, thu_13z, now, now, 60), "today at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, now, 60), "jutro o 14:00");
+        assert_eq!(when(Lang::En, thu_13z + 2 * DAY_MS, now, now, 60), "on Saturday at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + 5 * DAY_MS - 5 * 3_600_000, now, now, 60), "we wtorek o 09:00");
+        assert_eq!(when(Lang::En, thu_13z + 7 * DAY_MS, now, now, 60), "on 3 December at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z - 3 * DAY_MS, now, now, 60), "23 listopada o 14:00");
+    }
+
+    #[test]
+    fn old_alerts_name_dates_instead_of_today() {
+        let now = 1_795_687_200_000;
+        let thu_13z = now + 3 * 3_600_000;
+        let next_day = now + DAY_MS;
+        assert_eq!(when(Lang::En, thu_13z, now, now + 12 * 3_600_000, 60), "today at 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, next_day, 60), "on 26 November at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, next_day, 60), "27 listopada o 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, now + 60 * DAY_MS, 60), "on 26 November 2026 at 14:00");
+    }
+
+    #[test]
+    fn money_follows_the_display_currency() {
+        let usd = CurrencySettings::default();
+        let pln = CurrencySettings { code: "PLN".into(), usd_rate: 4.0 };
+        let chf = CurrencySettings { code: "chf".into(), usd_rate: 1.0 };
+        let v = json!({});
+        let p = |c| P { v: &v, currency: c, now: None };
+        assert_eq!(p(&usd).money(Lang::En, 28.07), "$28.07");
+        assert_eq!(p(&usd).money(Lang::En, 1400.0), "$1,400");
+        assert_eq!(p(&usd).money(Lang::Pl, 28.07), "28,07\u{a0}$");
+        assert_eq!(p(&pln).money(Lang::Pl, 101.25), "405,00\u{a0}zł");
+        assert_eq!(p(&pln).money(Lang::Pl, 350.0), "1400\u{a0}zł");
+        assert_eq!(p(&pln).money(Lang::Pl, 3086.4), "12\u{a0}346\u{a0}zł");
+        assert_eq!(p(&pln).money(Lang::En, 1.375), "zł\u{a0}5.50");
+        assert_eq!(p(&chf).money(Lang::En, 1234567.0), "CHF\u{a0}1,234,567");
+        let budget = json!({"name": "Team", "period": "month", "spent_usd": 101.25, "amount_usd": 100.0, "spent_pct": 101.25});
+        let style = Style { lang: "pl", currency: &pln, now: None };
+        let (_, message) = render_styled(AlertKind::BudgetExceeded, &budget, &style);
+        assert_eq!(message, "Wydatki wyniosły 405,00\u{a0}zł i przekroczyły miesięczny budżet 400,00\u{a0}zł (101%).");
     }
 
     #[test]

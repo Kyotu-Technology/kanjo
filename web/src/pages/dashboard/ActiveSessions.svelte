@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Confidence, SessionSummary } from '../../lib/api/contract';
-  import { modelColor, modelLabel } from '../../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t } from '../../lib/i18n/index.svelte';
   import { href } from '../../lib/router';
   import { navigate } from '../../lib/stores/router.svelte';
@@ -49,7 +49,7 @@
           <a class="title" href={href(`/sessions/${encodeURIComponent(s.id)}`)} onclick={(e) => e.stopPropagation()}>{s.title ?? t('dashboard.sessions.untitled')}</a>
           <span class="sub">{s.project}{#if s.git_branch}, {s.git_branch}{/if}</span>
         {:else if col.key === 'model'}
-          {#if s.main_model}<span class="model"><span class="key" style="background:{modelColor(s.main_model)}"></span>{modelLabel(s.main_model)}</span>{/if}
+          {#if s.main_model}<span class="model" title={modelTitle(s.main_model)}><span class="key" style="background:{modelColor(s.main_model)}"></span>{modelLabel(s.main_model)}</span>{/if}
         {:else if col.key === 'started'}
           {fmt.time(s.started_at)}<span class="sub">{fmt.ago(s.last_at)}</span>
         {:else if col.key === 'context'}

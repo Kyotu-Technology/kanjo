@@ -7,6 +7,19 @@ CREATE TABLE settings (
   updated_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 
+-- Per-installation secret that keys the redaction aliases (see store::write::alias).
+INSERT INTO settings (key, value, updated_at) VALUES ('alias_secret', '"' || lower(hex(randomblob(32))) || '"', 0);
+
+-- What was deleted on request or by retention. A transcript record or spool
+-- line inside a mark is not stored again, so a rescan, a rewritten transcript
+-- or a restart cannot bring deleted history back or count it twice.
+CREATE TABLE purge_marks (
+  scope TEXT NOT NULL,               -- all | session | project
+  target TEXT NOT NULL,              -- '' for all, otherwise the session id or the project id
+  until INTEGER NOT NULL,            -- records with ts < until are skipped
+  PRIMARY KEY (scope, target)
+) WITHOUT ROWID;
+
 CREATE TABLE projects (
   id INTEGER PRIMARY KEY,
   key TEXT NOT NULL UNIQUE,          -- directory name under <claude>/projects

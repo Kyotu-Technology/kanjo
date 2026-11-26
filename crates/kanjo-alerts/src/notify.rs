@@ -1,12 +1,13 @@
 //! Local delivery of alerts: a desktop notification (D-Bus on Linux through a
 //! pure-Rust client, the native centre on macOS and Windows) and the terminal
-//! bell. Nothing here touches the network; failures are logged, never returned.
+//! bell, which rings only in the terminal the server itself runs in. Nothing here
+//! touches the network; failures are logged, never returned.
 
 use crate::thresholds::MAX_PENDING_NOTIFICATIONS;
 use kanjo_core::api::{Alert, Severity};
 use kanjo_core::settings::AlertSettings;
 use std::io::Write;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 static PENDING: AtomicUsize = AtomicUsize::new(0);
 
@@ -21,24 +22,44 @@ pub fn deliver(alert: &Alert, settings: &AlertSettings) {
     }
 }
 
-fn bell() {
+/// Whether the terminal bell can ring: the server has a terminal, which is the case when
+/// `kanjo serve` runs in the foreground of a terminal and never when Kanjo runs as a
+/// background service. The bell rings in that terminal, not in Claude Code's.
+pub fn bell_available() -> bool {
     use std::io::IsTerminal;
-    let stderr = std::io::stderr();
-    if stderr.is_terminal() {
-        if let Err(e) = stderr.lock().write_all(b"\x07") {
-            tracing::debug!(error = %e, "terminal bell failed");
-        }
-        return;
+    if std::io::stderr().is_terminal() {
+        return true;
     }
     #[cfg(unix)]
-    match std::fs::OpenOptions::new().write(true).open("/dev/tty") {
-        Ok(mut tty) => {
-            if let Err(e) = tty.write_all(b"\x07") {
-                tracing::debug!(error = %e, "terminal bell failed");
-            }
-        }
-        Err(e) => tracing::debug!(error = %e, "no terminal for the bell"),
+    {
+        std::fs::OpenOptions::new().write(true).open("/dev/tty").is_ok()
     }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+fn bell() {
+    use std::io::IsTerminal;
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    let stderr = std::io::stderr();
+    let rung = if stderr.is_terminal() { stderr.lock().write_all(b"\x07").and_then(|_| stderr.lock().flush()) } else { tty_bell() };
+    if let Err(e) = rung {
+        if !WARNED.swap(true, Ordering::SeqCst) {
+            tracing::warn!(error = %e, "the terminal bell is on but the server has no terminal (it rings only when kanjo serve runs in the foreground)");
+        }
+    }
+}
+
+#[cfg(unix)]
+fn tty_bell() -> std::io::Result<()> {
+    std::fs::OpenOptions::new().write(true).open("/dev/tty")?.write_all(b"\x07")
+}
+
+#[cfg(not(unix))]
+fn tty_bell() -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no terminal"))
 }
 
 struct PendingGuard;

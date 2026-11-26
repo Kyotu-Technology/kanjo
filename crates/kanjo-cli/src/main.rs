@@ -19,14 +19,16 @@ use i18n::Lang;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let mut args = std::env::args_os();
-    let first = args.nth(1);
-    if args.next().is_none() {
-        match first.as_ref().and_then(|a| a.to_str()) {
-            Some("statusline") => return fast::statusline(None, None, false),
-            Some("hook") => return fast::hook(None, None),
-            _ => {}
-        }
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let (home, command) = match args.as_slice() {
+        [command] => (None, command.to_str()),
+        [flag, home, command] if flag == "--home" => (Some(std::path::PathBuf::from(home)), command.to_str()),
+        _ => (None, None),
+    };
+    match command {
+        Some("statusline") => return fast::statusline(home, None, false),
+        Some("hook") => return fast::hook(home, None),
+        _ => {}
     }
     std::panic::set_hook(Box::new(|info| {
         let place = info.location().map(|l| format!(" ({}:{})", l.file(), l.line())).unwrap_or_default();

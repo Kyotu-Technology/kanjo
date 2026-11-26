@@ -154,10 +154,12 @@ struct Change {
 }
 
 impl Change {
-    /// The change happened at most `BREAKER_WINDOW_MS` before the miss, in the same project or at user level.
+    /// The change happened at most `BREAKER_WINDOW_MS` before the miss, in the same project or at user level;
+    /// a tool set change only explains misses of its own session.
     fn explains(&self, m: &MissRow) -> bool {
         let close = m.ts >= self.change.ts && m.ts - self.change.ts <= BREAKER_WINDOW_MS;
-        close && (self.project_id.is_none() || self.project_id == m.project_id)
+        let own_session = self.change.kind != "tools" || self.change.target == m.session_id;
+        close && own_session && (self.project_id.is_none() || self.project_id == m.project_id)
     }
 }
 

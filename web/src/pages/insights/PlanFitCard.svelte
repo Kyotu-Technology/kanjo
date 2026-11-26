@@ -11,6 +11,7 @@
   import Money from '../../lib/ui/Money.svelte';
   import { monthLabel } from './format';
   import NextStep from './NextStep.svelte';
+  import { nextStepKey } from './plan';
   import PlanMonths from './PlanMonths.svelte';
 
   interface Props {
@@ -36,8 +37,8 @@
 
 {#snippet links()}
   {#if p.action === 'unknown' && p.reason === 'no_plan'}
-    <Button size="sm" href={href('/settings')}>{t('pages.insights.plan.settings')}</Button>
-  {:else if p.action === 'upgrade'}
+    <Button size="sm" href={href('/settings', { section: 'plan' })}>{t('pages.insights.plan.settings')}</Button>
+  {:else if p.action === 'upgrade' || nextStepKey(p) === 'keep_hot'}
     <Button size="sm" href={href('/limits')}>{t('pages.insights.plan.limits')}</Button>
   {/if}
 {/snippet}
@@ -81,7 +82,7 @@
         </div>
       {/if}
     </dl>
-    <NextStep text={tk(`pages.insights.plan.do.${p.action === 'unknown' && p.reason === 'no_history' ? 'no_history' : p.action}`)} children={links} />
+    <NextStep text={tk(`pages.insights.plan.do.${nextStepKey(p)}`)} children={links} />
   </Card>
   {#if hasMonths}
     <ChartCard title={t('pages.insights.plan.months_title')} subtitle={t('pages.insights.plan.months_subtitle')} {refreshing}>

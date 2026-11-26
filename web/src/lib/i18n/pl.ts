@@ -6,6 +6,8 @@ import systemPl from './pages/system.pl';
 
 const pl: Messages = {
   common: {
+    export: 'Eksportuj',
+    export_json: 'Eksportuj jako JSON',
     loading: 'Wczytywanie',
     retry: 'Spróbuj ponownie',
     close: 'Zamknij',
@@ -111,7 +113,7 @@ const pl: Messages = {
     per_min: '{value} na minutę',
     h_min: '{h} godz. {m} min',
     min: '{m} min',
-    d_h: '{d} d. {h} godz.',
+    d_h: '{d} dn. {h} godz.',
     less_than_min: 'niecała minuta',
   },
   time: {
@@ -225,8 +227,10 @@ const pl: Messages = {
       spent: 'Wydane do tej pory',
       burn: 'Tempo wydatków',
       per_hour: 'na godzinę',
+      burn_meta: '{tokens} tokenów/min, w ostatnich {minutes} min',
+      burn_block: 'Średnio od początku bloku: {value} na godzinę',
       projected: 'Na koniec bloku',
-      projected_note: 'Jeśli obecne tempo się utrzyma',
+      projected_note: 'Jeśli utrzyma się średnie tempo od początku bloku',
       ends: 'Koniec {when}',
       started: 'Początek o {time}',
       by_model: 'Według modelu',
@@ -321,7 +325,7 @@ const pl: Messages = {
   auth: {
     title: 'Otwórz Kanjo z terminala',
     body: 'Ze względów bezpieczeństwa ta strona otwiera się tylko przez prywatny link. Uruchom to polecenie na komputerze, na którym działa Kanjo, a pulpit otworzy się sam:',
-    why: 'Link zawiera jednorazowy klucz, więc nikt inny w Twojej sieci nie zobaczy Twoich danych.',
+    why: 'Link zawiera Twój prywatny klucz dostępu, więc nikt inny w Twojej sieci nie zobaczy Twoich danych. Nie przekazuj go nikomu.',
     retry: 'Zrobione, spróbuj ponownie',
   },
   onboarding: {
@@ -546,6 +550,8 @@ const pl: Messages = {
         description: 'Pobierz dane z tej strony jako plik do arkusza kalkulacyjnego lub innego narzędzia.',
         what: 'Co wyeksportować',
         over_time: 'Koszt w czasie, {group}',
+        heatmap: 'Aktywność według godzin i dni (JSON)',
+        compare: 'Ten tydzień i miesiąc wobec poprzednich (JSON)',
         breakdown: 'Podział: {dim}',
         format: 'Format',
         csv: 'CSV, do arkusza kalkulacyjnego',
@@ -709,7 +715,7 @@ const pl: Messages = {
         anchored: 'Zakotwiczone w rzeczywistym odnowieniu',
         inferred: 'Wywnioskowane z aktywności',
         anchored_help: 'Claude Code podał, kiedy to okno się odnawia, więc jego początek i koniec są dokładne.',
-        inferred_help: 'Żaden odczyt paska stanu nie objął tego okna, więc Kanjo zaczął je o pełnej godzinie pierwszego zapytania. Rzeczywiste okno może być przesunięte.',
+        inferred_help: 'Żaden odczyt paska stanu nie objął tego okna, więc Kanjo zaczęło je o pełnej godzinie pierwszego zapytania. Rzeczywiste okno może być przesunięte.',
         cheaper: 'Niższy koszt',
         dearer: 'Wyższy koszt',
         now: 'Teraz',
@@ -723,6 +729,9 @@ const pl: Messages = {
         kind_anchored: 'Zakotwiczone',
         kind_inferred: 'Wywnioskowane',
         no_peak: 'Brak odczytu',
+        col_projects: 'Projekty',
+        col_models: 'Modele',
+        more: 'jeszcze {count}',
       },
       per_pct_box: {
         title: 'Ile daje jeden procent limitu tygodniowego',
@@ -730,6 +739,7 @@ const pl: Messages = {
         sentence: 'W tym tygodniu jeden procent limitu tygodniowego dał około {value} użycia w cenach API.',
         last: 'W ostatnim tygodniu z odczytem jeden procent limitu tygodniowego dał około {value} użycia w cenach API.',
         range: 'W tygodniach z odczytami wahało się to od {low} do {high}.',
+        range_flat: 'W każdym tygodniu z odczytami wynosiło to około {value}.',
         explain: 'Wyższa wartość oznacza, że limit starcza na dłużej. Podnosi ją pamięć podręczna i lżejsze modele, a obniżają długie konteksty i najcięższe modele.',
         missing: 'Tygodnie bez odczytu paska stanu nie mają wartości.',
         empty: 'Potrzebny jest co najmniej tydzień odczytów paska stanu.',
@@ -796,6 +806,7 @@ const pl: Messages = {
         },
         do: {
           keep: 'Nic nie trzeba robić. Kanjo sprawdzi to ponownie, gdy użycie się zmieni.',
+          keep_hot: 'Rozłóż cięższą pracę na cały tydzień i zaglądaj na stronę Limity, aby rzadziej dochodzić do limitów.',
           upgrade: 'Na stronie Limity sprawdź, kiedy dochodzisz do limitów, a potem porównaj plany.',
           downgrade: 'Przed zmianą obserwuj jeszcze miesiąc, żeby pracowity tydzień Cię nie zaskoczył.',
           unknown: 'Ustaw swój plan w Ustawieniach.',
@@ -977,6 +988,7 @@ const pl: Messages = {
       shown: '{shown} z {total}',
       link: {
         session: 'Otwórz sesję',
+        project: 'Otwórz sesje projektu',
         limits: 'Otwórz Limity',
         budget: 'Zobacz budżet',
         insights: 'Otwórz Wskazówki',
@@ -1003,7 +1015,7 @@ const pl: Messages = {
         project: 'Projekt',
         client: 'Klient',
         account: 'Identyfikator konta',
-        account_help: 'Identyfikator konta w postaci, w jakiej podaje go Claude Code, na przykład w pasku stanu.',
+        account_help: 'Kanjo porównuje ten identyfikator z kontem zapisanym w plikach sesji Claude Code. Kanjo nie pokazuje identyfikatorów kont, więc zmieniaj go tylko wtedy, gdy znasz dokładną wartość.',
         no_clients: 'Żaden projekt nie ma jeszcze klienta. Przypisz klientów na stronie Projekty.',
         period: 'Okres',
         period_opt: {

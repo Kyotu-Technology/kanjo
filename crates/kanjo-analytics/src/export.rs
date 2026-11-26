@@ -333,7 +333,7 @@ fn ccusage_periods(store: &Store, ctx: &Ctx, q: &Query, g: Granularity) -> Resul
     if from > to {
         return Err(Error::Invalid("from must not be after to".into()));
     }
-    let f = Filter::from_query(q);
+    let f = Filter::from_query(q, &Env::load(store)?);
     let rows = store.read(|c| Src::new(c)?.fetch(from, to, &f, Keys { hour: true, model: true, ..Keys::NONE }))?;
     let mut buckets: BTreeMap<i64, Acc> = BTreeMap::new();
     for r in rows {

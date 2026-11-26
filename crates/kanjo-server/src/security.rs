@@ -11,7 +11,9 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) const COOKIE: &str = "kanjo_session";
@@ -33,6 +35,17 @@ const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(300);
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LocalAddr(pub SocketAddr);
 
+/// Set by the accept loop; becomes true once a request on the connection
+/// presented a valid credential, which protects it from eviction.
+#[derive(Debug, Clone)]
+pub(crate) struct ConnState(pub Arc<AtomicBool>);
+
+fn mark_proven(req: &Request) {
+    if let Some(c) = req.extensions().get::<ConnState>() {
+        c.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// The cookie value for a token. The cookie is a derivative, so the token
 /// itself never sits in the browser's cookie store.
 pub(crate) fn session_value(token: &str) -> String {
@@ -51,9 +64,13 @@ fn changes_state(m: &Method) -> bool {
     !matches!(*m, Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE)
 }
 
-/// Failed credential attempts per peer address. Only distinct wrong values
-/// count, so a browser repeating one stale cookie in parallel requests does not
-/// lock its user out, while guessing does.
+/// Failed credential attempts per peer. Only distinct wrong values count, so a
+/// browser repeating one stale cookie in parallel requests does not lock its
+/// user out, while guessing does. A lockout only refuses wrong credentials:
+/// the right token, cookie or login code is always accepted. All of loopback
+/// counts as one peer and IPv6 peers count per /64, so rotating source
+/// addresses buys nothing; once the table is full, untracked peers share one
+/// overflow entry, which is enforced like any other.
 #[derive(Default)]
 pub(crate) struct Limiter {
     peers: HashMap<Option<IpAddr>, Peer>,
@@ -71,9 +88,29 @@ impl Peer {
     }
 }
 
+fn peer_key(ip: Option<IpAddr>) -> Option<IpAddr> {
+    let ip = match ip? {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6(v6),
+        },
+        v4 => v4,
+    };
+    Some(match ip {
+        ip if ip.is_loopback() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    })
+}
+
 impl Limiter {
     /// Seconds left in a lockout, if the peer is locked out.
     pub fn locked(&mut self, key: Option<IpAddr>, now: Instant) -> Option<u64> {
+        let key = peer_key(key);
+        let key = if self.peers.contains_key(&key) { key } else { None };
         let until = self.peers.get(&key)?.locked_until?;
         if until > now {
             return Some(until.duration_since(now).as_secs().max(1));
@@ -84,7 +121,7 @@ impl Limiter {
 
     /// Records a wrong credential; true when this failure started a lockout.
     pub fn fail(&mut self, key: Option<IpAddr>, credential: &str, now: Instant) -> bool {
-        let mut key = key;
+        let mut key = peer_key(key);
         if !self.peers.contains_key(&key) && self.peers.len() >= MAX_TRACKED_PEERS {
             self.peers.retain(|_, p| !p.expired(now));
             if self.peers.len() >= MAX_TRACKED_PEERS {
@@ -179,17 +216,21 @@ impl Inner {
             .map(str::trim);
         let cookies = session_cookies(headers);
         if bearer.is_none() && cookies.is_empty() {
-            return Err(ApiErr::unauthorized("an access token is required; open the link printed by `kanjo open`"));
-        }
-        let now = Instant::now();
-        let mut limiter = lock(&self.limiter);
-        if let Some(wait) = limiter.locked(peer, now) {
-            return Err(too_many(wait));
+            let open = match kanjo_setup::claude::home_arg(&self.paths) {
+                Some(home) => format!("kanjo --home {} open", home.display()),
+                None => "kanjo open".to_string(),
+            };
+            return Err(ApiErr::unauthorized(format!("an access token is required; run `{open}` to sign in")));
         }
         let ok =
             bearer.is_some_and(|b| kanjo_ops::token::matches(token, b)) || cookies.iter().any(|c| kanjo_ops::token::matches(session, c));
         if ok {
             return Ok(());
+        }
+        let now = Instant::now();
+        let mut limiter = lock(&self.limiter);
+        if let Some(wait) = limiter.locked(peer, now) {
+            return Err(too_many(wait));
         }
         let wrong = bearer.map(str::to_string).unwrap_or_else(|| cookies.join(";"));
         if limiter.fail(peer, &wrong, now) {
@@ -295,6 +336,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         if let Err(e) = inner.authenticate(req.headers(), peer_ip(&req)) {
             return e.into_response();
         }
+        mark_proven(&req);
     }
     next.run(req).await
 }
@@ -321,19 +363,37 @@ pub(crate) fn token_login(inner: &Inner, req: &Request, query: &str) -> Response
     }
     let Some(token) = &inner.token else { return see_other(&target, None) };
     let given = given.unwrap_or("");
+    if kanjo_ops::token::matches(token, given)
+        || inner.take_login_code(given)
+        || kanjo_setup::server_file::claim_login_code(&inner.paths, &inner.instance, given, kanjo_core::time::now_ms())
+    {
+        mark_proven(req);
+        return see_other(&target, inner.session_cookie());
+    }
     let peer = peer_ip(req);
     let now = Instant::now();
     let mut limiter = lock(&inner.limiter);
     if let Some(wait) = limiter.locked(peer, now) {
         return too_many(wait).into_response();
     }
-    if kanjo_ops::token::matches(token, given) || inner.take_login_code(given) {
-        drop(limiter);
-        return see_other(&target, inner.session_cookie());
+    if counts_against_peer(req.headers()) {
+        limiter.fail(peer, given, now);
+        tracing::warn!(peer = ?peer, "rejected the access token of a login link");
+    } else {
+        tracing::warn!("ignored a wrong login link that came from another site");
     }
-    limiter.fail(peer, given, now);
-    tracing::warn!(peer = ?peer, "rejected the access token of a login link");
     see_other(&target, None)
+}
+
+/// A wrong login link counts towards a lockout only when the browser says it
+/// is a navigation that did not come from another site. Any page can make a
+/// browser fetch `/?token=...` as an image or a cross-site link; counting those
+/// would let it lock the owner out.
+fn counts_against_peer(headers: &HeaderMap) -> bool {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    let cross = matches!(get("sec-fetch-site"), Some("cross-site" | "same-site"));
+    let navigation = get("sec-fetch-mode").is_none_or(|m| m == "navigate");
+    !cross && navigation
 }
 
 fn safe_path(path: &str) -> String {
@@ -466,6 +526,57 @@ mod tests {
         assert!(l.locked(ip, now).is_some());
         assert!(l.locked(Some(IpAddr::from([10, 0, 0, 1])), now).is_none());
         assert_eq!(l.locked(ip, now + LOCKOUT + Duration::from_secs(1)), None);
+    }
+
+    #[test]
+    fn loopback_and_ipv6_prefixes_share_one_entry() {
+        let mut l = Limiter::default();
+        let now = Instant::now();
+        for i in 0..MAX_FAILURES {
+            let ip = IpAddr::from([127, 0, (i / 256) as u8, (i % 256) as u8 + 1]);
+            l.fail(Some(ip), &format!("guess {i}"), now);
+        }
+        assert!(l.locked(Some(IpAddr::from([127, 9, 9, 9])), now).is_some());
+        assert!(l.locked(Some("::1".parse().unwrap()), now).is_some());
+        for i in 0..MAX_FAILURES {
+            l.fail(Some(format!("2001:db8:1:2::{i:x}").parse().unwrap()), &format!("g{i}"), now);
+        }
+        assert!(l.locked(Some("2001:db8:1:2:ffff::1".parse().unwrap()), now).is_some());
+        assert!(l.locked(Some("2001:db8:1:3::1".parse().unwrap()), now).is_none());
+    }
+
+    #[test]
+    fn the_overflow_bucket_is_enforced() {
+        let mut l = Limiter::default();
+        let now = Instant::now();
+        for i in 0..MAX_TRACKED_PEERS as u32 {
+            l.fail(Some(IpAddr::from((0x0a00_0000 + i).to_be_bytes())), "one guess", now);
+        }
+        for i in 0..MAX_FAILURES as u32 {
+            let ip = IpAddr::from((0x0b00_0000 + i).to_be_bytes());
+            assert!(l.locked(Some(ip), now).is_none());
+            l.fail(Some(ip), &format!("guess {i}"), now);
+        }
+        assert!(l.locked(Some(IpAddr::from([11, 1, 2, 3])), now).is_some(), "an untracked peer falls under the overflow lockout");
+        assert!(l.locked(Some(IpAddr::from([10, 0, 0, 1])), now).is_none(), "a tracked peer keeps its own entry");
+    }
+
+    #[test]
+    fn only_same_site_navigations_count() {
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            let mut m = HeaderMap::new();
+            for (k, v) in pairs {
+                m.insert(*k, HeaderValue::from_static(v));
+            }
+            m
+        };
+        assert!(counts_against_peer(&h(&[])));
+        assert!(counts_against_peer(&h(&[("sec-fetch-site", "none"), ("sec-fetch-mode", "navigate")])));
+        assert!(counts_against_peer(&h(&[("sec-fetch-site", "same-origin"), ("sec-fetch-mode", "navigate")])));
+        assert!(!counts_against_peer(&h(&[("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "navigate")])));
+        assert!(!counts_against_peer(&h(&[("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "no-cors")])));
+        assert!(!counts_against_peer(&h(&[("sec-fetch-site", "same-origin"), ("sec-fetch-mode", "no-cors")])));
+        assert!(!counts_against_peer(&h(&[("sec-fetch-site", "same-site")])));
     }
 
     #[test]

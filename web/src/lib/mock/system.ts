@@ -237,8 +237,9 @@ export function seedSystem(ds: Dataset): void {
   if (ds.hooks.statusline_installed) ds.hooks = { ...ds.hooks, statusline_chain: SAMPLE_CHAIN };
   const existing = [...ds.audit].reverse();
   const plan: Omit<AuditEntry, 'id' | 'hash'>[] = [];
-  const add = (ago: number, actor: string, action: string, target: string, detail: Record<string, unknown> = {}) =>
-    plan.push({ ts: now - ago, actor, action, target, detail: detail as AuditEntry['detail'] });
+  const how: Record<string, Record<string, unknown>> = { cli: { via: 'cli' }, local: { client: '127.0.0.1' }, service: { user: 'dev' } };
+  const add = (ago: number, role: string, action: string, target: string, detail: Record<string, unknown> = {}) =>
+    plan.push({ ts: now - ago, actor: role === 'cli' ? 'dev' : role, action, target, detail: { ...detail, ...how[role] } as AuditEntry['detail'] });
   add(62 * DAY, 'cli', 'hooks.install', 'settings.json', { statusline: true, session_hooks: true, service: true });
   add(62 * DAY - 5 * MIN, 'local', 'settings.update', 'settings', { keys: ['language', 'privacy.session_titles'] });
   add(61 * DAY, 'local', 'settings.update', 'settings', { keys: ['plan'] });
