@@ -1,4 +1,4 @@
-# cargo-deny policy for Kanjo. Validated with cargo-deny 0.20.2 (the version CI pins).
+# cargo-deny policy for Kanjo. Validated with cargo-deny 0.22.1 (the version CI pins).
 # Run locally with: cargo deny check
 
 [graph]
@@ -45,6 +45,13 @@ unused-allowed-license = "allow"
 [[licenses.exceptions]]
 crate = "sqlcipher-src"
 allow = ["blessing", "WTFPL"]
+
+# xxhash-rust (pulled in by notify 9 for content hashing in its poll watcher) is under the
+# Boost Software License 1.0, a permissive OSI-approved licence that, unlike MIT, does not
+# even require the notice in binary distributions. Allowed for this crate only.
+[[licenses.exceptions]]
+crate = "xxhash-rust"
+allow = ["BSL-1.0"]
 
 [licenses.private]
 ignore = true

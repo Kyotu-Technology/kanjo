@@ -128,7 +128,7 @@ jobs:
           persist-credentials: false
       - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny@0.22.1
       - run: cargo deny --color always check advisories bans licenses sources
 
   audit:
