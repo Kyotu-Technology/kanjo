@@ -19,6 +19,12 @@
       "Bash(scripts/cargo-audit.sh)",
       "Bash(sh scripts/test-install.sh)"
     ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)"
+    ],
     "ask": [
       "Bash(git push)",
       "Bash(git push *)",
@@ -32,16 +38,30 @@
       "Bash(npm install *)",
       "Bash(npm publish *)",
       "Read(~/.claude/projects/**/*.jsonl)"
-    ],
-    "deny": [
-      "Read(./.env)",
-      "Read(./.env.*)",
-      "Read(./**/.env)",
-      "Read(./**/.env.*)"
     ]
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "svelte@svelte": true,
+    "rust-review@trailofbits": true,
+    "differential-review@trailofbits": true
+  },
+  "extraKnownMarketplaces": {
+    "svelte": {
+      "source": {
+        "source": "github",
+        "repo": "sveltejs/ai-tools",
+        "ref": "f9d22f2f7f7cd5e4596eef5d108a69ac8f0dd48d"
+      }
+    },
+    "trailofbits": {
+      "source": {
+        "source": "github",
+        "repo": "trailofbits/skills",
+        "ref": "149d7b21f4067765b82e67029730b42d228ef4b4"
+      }
+    }
   }
 }

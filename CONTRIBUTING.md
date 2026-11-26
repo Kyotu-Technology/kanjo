@@ -38,28 +38,30 @@ Kanjo is developed with coding agents, and the repository carries the configurat
 
 [CLAUDE.md](CLAUDE.md) holds the project instructions and is loaded in every session; [AGENTS.md](AGENTS.md) points other tools to it. `.claude/rules/` holds short rules for one part of the tree each (the web UI, the store, the API contract, the parser, the server, dependencies, workflows, scripts, documentation), loaded only when a matching file is opened. `.claude/skills/` holds procedures that Claude Code offers as slash commands: `/preflight` runs the checks CI runs, `/api-change`, `/add-migration` and `/parser-fixture` walk through the three changes that are easiest to get half right, `/run-demo` starts the app on synthetic data, and `/update-pricing` and `/release-prep` are maintainer procedures that only run when typed. `.claude/agents/invariant-reviewer.md` is a reviewer that edits nothing and checks a diff against the rules in the next section. Claude Code's built-in `/code-review` and `/security-review` need no installation and are the recommended baseline before a pull request.
 
-`.claude/settings.json` is deliberately small. It lets the agent run the build, test and lint commands without asking, makes it ask before pushing, tagging, releasing, adding a dependency or reading a real Claude Code transcript under `~/.claude/projects`, and denies reading `.env` files. It commits no hooks and no MCP servers. Hooks in a repository run on a contributor's machine as soon as the folder is opened, and an MCP server is one more program with network access; neither fits a project whose promise is that nothing leaves the machine. Personal preferences go into `.claude/settings.local.json`, which is ignored by git. A pull request that changes anything under `.claude/` is reviewed like code.
+`.claude/settings.json` holds the shared permissions and the list of plugins. It lets the agent run the build, test and lint commands without asking, makes it ask before pushing, tagging, releasing, adding a dependency or reading a real Claude Code transcript under `~/.claude/projects`, and denies reading `.env` files. The repository commits no hooks and no MCP servers of its own: hooks in a repository run on a contributor's machine as soon as the folder is opened, and an MCP server is one more program with network access. Personal preferences go into `.claude/settings.local.json`, which is ignored by git. A pull request that changes anything under `.claude/` is reviewed like code.
 
-The settings enable two plugins from Anthropic's own marketplace, the language servers for Rust and TypeScript. A committed entry does not download anything; install them once per clone, with the server binaries on your `PATH`:
+The same file names the plugins the project uses, so that everyone works with the same set. They come from three marketplaces: Anthropic's own, Svelte's (`sveltejs/ai-tools`) and Trail of Bits' (`trailofbits/skills`). The two third-party ones are pinned to a commit under `extraKnownMarketplaces`.
+
+| Plugin | What it adds | Worth knowing |
+| --- | --- | --- |
+| `rust-analyzer-lsp@claude-plugins-official` | Code intelligence for Rust | Needs `rust-analyzer` on your `PATH` |
+| `typescript-lsp@claude-plugins-official` | Code intelligence for TypeScript | Needs `typescript-language-server` |
+| `svelte@svelte` | Svelte 5 skills, a Svelte file editor agent and the language server for `.svelte` files | Needs `svelteserver`. It also starts a documentation MCP server with `npx -y @sveltejs/mcp`, a package the pin does not cover; disable it in `/mcp` if you do not want it |
+| `frontend-design@claude-plugins-official` | Guidance for visual design work | The design system in `web/README.md` wins where the two disagree |
+| `rust-review@trailofbits` | A security review of Rust code: panics that can be triggered from outside, concurrency, the unsafe boundary | Runs bundled Python scripts to plan the review and write its report, and uses several agents, so it costs more than a plain review |
+| `differential-review@trailofbits` | A security-focused review of a diff | Good before a change to `kanjo-server` or `kanjo-setup` |
+
+An entry in the settings enables a plugin but does not download it. One script adds the marketplaces at their pinned commits and installs every enabled plugin; run it once per clone and again when the list changes, with the language servers installed first:
 
 ```sh
 rustup component add rust-analyzer
-npm install -g typescript typescript-language-server
-claude plugin install rust-analyzer-lsp@claude-plugins-official --scope project
-claude plugin install typescript-lsp@claude-plugins-official --scope project
+npm install -g typescript typescript-language-server svelte-language-server
+scripts/claude-plugins.sh
 ```
 
-Other plugins are useful here but are not enabled by the repository, because a plugin runs with your privileges and a marketplace follows its upstream branch. Install the ones you want at user scope and review what they contain first.
+The script needs `claude`, `jq` and `git`. It changes Claude Code's own configuration only, never the repository, and it leaves a marketplace you already have under the same name as it is, so your copy keeps following its own branch. To opt out of a plugin, set it to `false` under `enabledPlugins` in `.claude/settings.local.json`. A plugin runs with your privileges, which is why the pins are raised by hand, in a pull request, after reading what changed upstream. `insecure-defaults` and `sharp-edges` from the Trail of Bits marketplace are worth installing at user scope before a larger change to the server; they are left out here to keep the shared set small.
 
-| Plugin | Source | What it adds | Worth knowing |
-| --- | --- | --- | --- |
-| `svelte@svelte` | `sveltejs/ai-tools` (official, MIT) | Svelte 5 skills, a Svelte file editor agent and the `svelteserver` language server | Also starts an MCP server with `npx -y @sveltejs/mcp`, an unpinned package; disable it if you only want the skills |
-| `rust-review@trailofbits` | `trailofbits/skills` (CC-BY-SA-4.0) | A security review of Rust code: panics that can be triggered from outside, concurrency, the unsafe boundary | Runs bundled Python scripts to plan the review and write its report, and uses several agents, so it costs more than a plain review |
-| `differential-review@trailofbits`, `insecure-defaults@trailofbits`, `sharp-edges@trailofbits` | `trailofbits/skills` | A security-focused review of a diff, of configuration defaults and of error-prone APIs | Good before a change to `kanjo-server` or `kanjo-setup` |
-| `security-audit` skill | `cloudflare/security-audit-skill` (MIT) | A full, multi-phase security audit with a written report | Not a plugin: copy `skills/security-audit` into `~/.claude/skills/`. Meant for an occasional deep audit, not for every change |
-| `frontend-design@claude-plugins-official` | Anthropic | Guidance for visual design work | The design system in `web/README.md` wins where the two disagree |
-
-Add a third-party marketplace with `/plugin marketplace add <owner>/<repo>` and install from it with `/plugin install <plugin>@<marketplace>`.
+`.claude/skills/security-audit` is third-party as well. It is Cloudflare's security audit skill (MIT, see `.claude/THIRD-PARTY-NOTICES.md`), copied in unchanged with `npx skills add https://github.com/cloudflare/security-audit-skill --skill security-audit --agent claude-code --copy` and pinned by commit and content hash in `skills-lock.json`. It answers security questions and, when asked for a full audit, runs a multi-phase review that writes its report outside the repository. Do not edit its files; update it with `npx skills update security-audit` and review the diff like any other change. The `skills` CLI reports installs to its maker unless `DISABLE_TELEMETRY=1` is set.
 
 Two rules apply to agents more than to people. Do not give an agent a real transcript, not even your own, to explain a parser bug or to build a fixture; describe the record's keys and value types instead. And do not let an agent run `kanjo up` or `kanjo serve` to try a change; `kanjo demo` exists for that.
 
