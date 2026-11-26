@@ -2,7 +2,7 @@
 
 This is a short threat model for Kanjo as it is in this repository: a single `kanjo` binary that one person runs on their own computer to see the cost and limits of their Claude Code sessions. It says what Kanjo protects, which boundaries it defends, which threats were considered, how each is mitigated and what risk remains. It was written from the code (chiefly `crates/kanjo-server/src/security.rs` and `net.rs`, `crates/kanjo-ops/src/keys.rs` and `token.rs`, `crates/kanjo-setup/src/server_file.rs`) and from the security findings of an internal review and the fixes made for them. It covers one user on one machine; there is no team or company server.
 
-Kanjo is an independent open-source project published by Kyotu, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
+Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
 ## Assets
 

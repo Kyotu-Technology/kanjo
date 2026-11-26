@@ -107,11 +107,11 @@ Kanjo działa dla jednej osoby na jednym komputerze. CI testuje je na Ubuntu 24.
 
 ## Stworzone przez Kyotu Technology
 
-Kanjo rozwija i utrzymuje [Kyotu Technology](https://www.kyotutechnology.com/), firma programistyczna, która buduje oprogramowanie na zamówienie, systemy webowe, aplikacje mobilne i rozwiązania cloud/DevSecOps dla klientów z branży medycznej, fintechu i energetyki, z siedzibą w Warszawie i biurami we Wrocławiu, Austin i Nowym Jorku. Kyotu używa Claude Code we własnej pracy dla klientów: przeczytaj o [zespołach agentów Claude Code na produkcji](https://kyotutechnology.com/claude-code-agent-teams-in-production-api-migration/) i o tym, [jak Kyotu przebudowało swoją stronę z Claude Code](https://kyotutechnology.com/how-we-rebuilt-our-website-with-claude-code/).
+Kanjo rozwija i utrzymuje [Kyotu Technology](https://www.kyotutechnology.com/), firma programistyczna, która buduje oprogramowanie na zamówienie, systemy webowe, aplikacje mobilne i rozwiązania cloud/DevSecOps dla klientów z branży medycznej, fintechu i energetyki, z siedzibą w Warszawie i biurami we Wrocławiu, Austin i Nowym Jorku. Kyotu Technology używa Claude Code we własnej pracy dla klientów: przeczytaj o [zespołach agentów Claude Code na produkcji](https://kyotutechnology.com/claude-code-agent-teams-in-production-api-migration/) i o tym, [jak Kyotu Technology przebudowało swoją stronę z Claude Code](https://kyotutechnology.com/how-we-rebuilt-our-website-with-claude-code/).
 
 Kyotu Technology ma [certyfikat ISO/IEC 27001:2022](https://www.kyotutechnology.com/iso-27001-2022-certification-kyotu-technology/) wydany przez DEKRA Certification (nr 00082600610, ważny do 17 sierpnia 2029), a zakres certyfikacji obejmuje rozwiązania AI/ML/LLM i DevOps. Certyfikat należy do firmy: samo Kanjo nie jest certyfikowane i zamiast tego zawiera [mapowanie swoich funkcji na zabezpieczenia z załącznika A](docs/security/iso27001.md).
 
-Wdrażasz agentów AI do programowania i chcesz, żeby koszty, kontrola i bezpieczeństwo trzymały się w ryzach? [Porozmawiaj z Kyotu](https://www.kyotutechnology.com/contact/).
+Wdrażasz agentów AI do programowania i chcesz, żeby koszty, kontrola i bezpieczeństwo trzymały się w ryzach? [Porozmawiaj z Kyotu Technology](https://www.kyotutechnology.com/contact/).
 
 ## Podziękowania
 
@@ -121,6 +121,6 @@ Kanjo korzysta z pomysłów narzędzi, które powstały przed nim. ccusage ukszt
 
 Wkład jest mile widziany: [CONTRIBUTING.md](CONTRIBUTING.md) wyjaśnia, jak budować i testować, oraz jakich zasad przestrzega każda zmiana. Podatności zgłaszaj prywatnie, jak opisuje [SECURITY.md](SECURITY.md), a nie w publicznym zgłoszeniu. Zmiany są opisane w [CHANGELOG.md](CHANGELOG.md).
 
-Prawa autorskie do Kanjo należą do Kyotu, a program jest udostępniony na [licencji Apache 2.0](LICENSE). Plik wykonywalny zawiera SQLCipher i OpenSSL; ich informacje licencyjne są w pliku [NOTICE](NOTICE).
+Prawa autorskie do Kanjo należą do Kyotu Technology, a program jest udostępniony na [licencji Apache 2.0](LICENSE). Plik wykonywalny zawiera SQLCipher i OpenSSL; ich informacje licencyjne są w pliku [NOTICE](NOTICE).
 
 „Claude” i „Claude Code” są znakami towarowymi Anthropic. Kanjo to niezależny projekt open source firmy Kyotu Technology. Nie jest powiązane z Anthropic ani przez Anthropic popierane czy sponsorowane, a nazw tych używa wyłącznie po to, by powiedzieć, z czym współpracuje.

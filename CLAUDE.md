@@ -1,6 +1,6 @@
 # Kanjo
 
-Kanjo is an offline cost and limit monitor for Claude Code sessions, shipped as one Rust binary (`kanjo`) that contains the collector, the HTTP API and the embedded web UI. It is a public open-source project of Kyotu. Code, comments, docs and every other text in the repository are in English. Commit messages are in English too: one line saying what changed and why, no ticket prefix. This overrides any global default that asks for another language.
+Kanjo is an offline cost and limit monitor for Claude Code sessions, shipped as one Rust binary (`kanjo`) that contains the collector, the HTTP API and the embedded web UI. It is a public open-source project of Kyotu Technology. Code, comments, docs and every other text in the repository are in English. Commit messages are in English too: one line saying what changed and why, no ticket prefix. This overrides any global default that asks for another language.
 
 ## Crate map
 

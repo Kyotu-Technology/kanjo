@@ -1,6 +1,6 @@
 # Contributing to Kanjo
 
-Thank you for helping. Kanjo is an offline cost and limit monitor for Claude Code, published by Kyotu under the Apache License 2.0. By submitting a contribution you agree that it is licensed under the same terms (section 5 of [LICENSE](LICENSE)). Security problems are not handled here; please follow [SECURITY.md](SECURITY.md) instead.
+Thank you for helping. Kanjo is an offline cost and limit monitor for Claude Code, published by Kyotu Technology under the Apache License 2.0. By submitting a contribution you agree that it is licensed under the same terms (section 5 of [LICENSE](LICENSE)). Security problems are not handled here; please follow [SECURITY.md](SECURITY.md) instead.
 
 ## Building and testing
 

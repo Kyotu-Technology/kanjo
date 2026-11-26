@@ -1,7 +1,7 @@
 # Feature status
 
 This page says how far the current tree covers the functional specification Kanjo was built from.
-Kanjo is an independent open-source project published by Kyotu, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
+Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
 ## How the statuses were set
 

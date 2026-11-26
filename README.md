@@ -107,11 +107,11 @@ Kanjo works for one person on one machine. CI tests it on Ubuntu 24.04, macOS 15
 
 ## Built by Kyotu Technology
 
-Kanjo is built and maintained by [Kyotu Technology](https://www.kyotutechnology.com/), a software company that builds custom software, web systems, mobile apps and cloud/DevSecOps solutions for clients across healthcare, fintech and energy, headquartered in Warsaw with offices in Wrocław, Austin and New York. Kyotu runs Claude Code in its own delivery work: read about [Claude Code agent teams in production](https://kyotutechnology.com/claude-code-agent-teams-in-production-api-migration/) and [rebuilding its website with Claude Code](https://kyotutechnology.com/how-we-rebuilt-our-website-with-claude-code/).
+Kanjo is built and maintained by [Kyotu Technology](https://www.kyotutechnology.com/), a software company that builds custom software, web systems, mobile apps and cloud/DevSecOps solutions for clients across healthcare, fintech and energy, headquartered in Warsaw with offices in Wrocław, Austin and New York. Kyotu Technology runs Claude Code in its own delivery work: read about [Claude Code agent teams in production](https://kyotutechnology.com/claude-code-agent-teams-in-production-api-migration/) and [rebuilding its website with Claude Code](https://kyotutechnology.com/how-we-rebuilt-our-website-with-claude-code/).
 
 Kyotu Technology is [ISO/IEC 27001:2022 certified](https://www.kyotutechnology.com/iso-27001-2022-certification-kyotu-technology/) by DEKRA Certification (certificate no. 00082600610, valid until 17 August 2029), with AI/ML/LLM solutions and DevOps in the certified scope. The certificate is the company's: Kanjo itself is not certified, and ships a [mapping of its features to Annex A controls](docs/security/iso27001.md) instead.
 
-Rolling out AI coding agents and want cost, control and security to hold up? [Talk to Kyotu](https://www.kyotutechnology.com/contact/).
+Rolling out AI coding agents and want cost, control and security to hold up? [Talk to Kyotu Technology](https://www.kyotutechnology.com/contact/).
 
 ## Acknowledgements
 
@@ -121,6 +121,6 @@ Kanjo stands on ideas from tools that came before it. ccusage shaped the period 
 
 Contributions are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build and test and the rules every change follows. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a public issue. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Kanjo is copyright Kyotu and licensed under the [Apache License 2.0](LICENSE). The binary includes SQLCipher and OpenSSL; their notices are in [NOTICE](NOTICE).
+Kanjo is copyright Kyotu Technology and licensed under the [Apache License 2.0](LICENSE). The binary includes SQLCipher and OpenSSL; their notices are in [NOTICE](NOTICE).
 
 "Claude" and "Claude Code" are trademarks of Anthropic. Kanjo is an independent open-source project by Kyotu Technology. It is not affiliated with, endorsed by or sponsored by Anthropic, and it uses those names only to say what it works with.

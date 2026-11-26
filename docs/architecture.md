@@ -2,7 +2,7 @@
 
 Kanjo is one Rust binary, `kanjo`, that contains the collector, a local HTTP API, the web dashboard and the command line. It runs as the user who runs Claude Code, reads the files Claude Code writes on the same machine, keeps what it learns in an encrypted SQLite database in its own data directory, and serves the dashboard on the loopback interface. It makes no outbound network connections. This document explains how the pieces fit together and why the boundaries are where they are.
 
-Kanjo is an independent open-source project published by Kyotu, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
+Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
 ## Crate map
 

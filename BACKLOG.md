@@ -14,11 +14,6 @@ Last ID used: K-070
 
 Accepted work, in the order it should be done.
 
-### K-002 One publisher name: Kyotu Technology
-Size: S.
-Why: NOTICE says "Kyotu" and the README says "Kyotu Technology"; the WinGet package identifier follows from the name and is hard to change once it is merged.
-Done when: NOTICE and the documentation say "Kyotu Technology" wherever the publisher is named, identifiers and paths that contain kyotu (the LaunchAgent label, the data directory) stay as they are, and the WinGet identifier is KyotuTechnology.Kanjo.
-
 ### K-032 Windows session with the published release
 Size: M.
 Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-005, K-069).
@@ -45,7 +40,7 @@ Why: v0.1.0 lacks the path fixes, so a channel built on it breaks on the first u
 Done when: v0.2.0-rc.1 and v0.2.0 are prepared with release-prep and published, the candidate has exercised the new archive layout end to end, and the v0.2.0 release reports itself immutable.
 
 ### K-008 First WinGet submission
-Size: S. Depends: K-007, K-002, K-032.
+Size: S. Depends: K-007, K-032.
 Why: the first version of a WinGet package needs the Microsoft Contributor License Agreement and a new-package review, so it cannot be automated.
 Done when: a pull request made with komac for KyotuTechnology.Kanjo is open in microsoft/winget-pkgs, the zip has passed gh attestation verify and its InstallerSha256 matches SHA256SUMS. If validation rejects the unsigned zip, K-033 moves to triage.
 

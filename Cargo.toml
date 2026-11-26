@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.91"
 license = "Apache-2.0"
-authors = ["Kyotu"]
+authors = ["Kyotu Technology"]
 repository = "https://github.com/Kyotu-Technology/kanjo"
 
 [workspace.lints.rust]

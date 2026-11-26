@@ -2,7 +2,7 @@
 
 This document lists every kind of data Kanjo stores or touches on the machine it runs on: what it is, where it comes from, whether it can identify a person or a client, how long it is kept by default, how it is protected and how it is deleted. It is written from the schema in `crates/kanjo-core/src/store/schema.sql`, the paths in `crates/kanjo-core/src/paths.rs` and the code that reads and writes them, and it is meant to be copied into an organisation's asset register (ISO/IEC 27001:2022 control A.5.9, see [iso27001.md](iso27001.md)).
 
-Kanjo is an independent open-source project published by Kyotu. It is not made, endorsed or supported by Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products; Kanjo only reads files that Claude Code writes on the same computer.
+Kanjo is an independent open-source project published by Kyotu Technology. It is not made, endorsed or supported by Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products; Kanjo only reads files that Claude Code writes on the same computer.
 
 ## Where the data lives
 
