@@ -24,37 +24,25 @@
 </picture>
 <p align="center"><sub>Every figure in the screenshots is synthetic demo data from <code>kanjo demo</code>.</sub></p>
 
-| ~17 MB | 0 | 473 | 14 | 5 | 24 |
+| ~17 MB | 0 | 470 | 14 | 5 | 24 |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | one binary: collector, API and dashboard | outbound connections, checked by a zero-egress test in CI | Rust and web UI tests on every pull request and push to main | CI jobs on Ubuntu, macOS and Windows | release targets defined, each to be signed with SBOM and provenance | priced models; an unknown one is never guessed |
 
 ## Install
 
-**macOS and Linux (recommended)**
+**macOS and Linux**
 
 ```sh
 curl -fsSL https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.sh | sh
 ```
 
-**Homebrew (macOS and Linux)**
-
-```sh
-brew install kyotu-technology/tap/kanjo
-```
-
-**Windows (recommended, PowerShell)**
+**Windows (PowerShell)**
 
 ```powershell
 irm https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.ps1 | iex
 ```
 
-**WinGet (Windows)**
-
-```powershell
-winget install Kyotu.Kanjo
-```
-
-> **Install status:** no release is published yet. The curl and irm one-liners work from v0.1.0. Homebrew and WinGet follow once the tap repository exists and the WinGet submission is merged. Until then, [build from source](docs/install.md#from-source).
+> **Install status:** no release is published yet. The curl and irm one-liners work from v0.1.0. Until then, [build from source](docs/install.md#from-source).
 
 The scripts check the archive against the release's `SHA256SUMS` and, when cosign is installed, its Sigstore signature. They need no sudo or administrator rights. Then:
 

@@ -2,9 +2,9 @@
 
 Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
-Kanjo is a single binary with no runtime dependencies. You can install a release with a script or a package manager, or build it from source; then `kanjo up` connects it to Claude Code.
+Kanjo is a single binary with no runtime dependencies. You can install a release with a script or build it from source; then `kanjo up` connects it to Claude Code.
 
-> No release has been published yet, so the install scripts and package managers have nothing to download today. Building from source is the path that works now. See [status.md](status.md).
+> No release has been published yet, so the install scripts have nothing to download today. Building from source is the path that works now. See [status.md](status.md).
 
 ## With the install script
 
@@ -34,21 +34,7 @@ The parameters are `-Version`, `-Dir`, `-Archive`, `-Sums`, `-NoVerify`, `-SkipS
 
 The scripts contact GitHub to download the release. Kanjo itself never does; with `--archive` (`-Archive`) the scripts work offline too. How to verify a download by hand is described in [release.md](release.md#verifying-a-download).
 
-## With Homebrew or WinGet
-
-```sh
-brew install kyotu-technology/tap/kanjo
-```
-
-```powershell
-winget install Kyotu.Kanjo
-```
-
-Both package managers install the same archive as the scripts. Homebrew checks the archive's SHA-256 against the one written in the formula, and the tap copies the formula from a release only after `gh attestation verify` has shown that Kanjo's release workflow built it from that tag. WinGet checks the zip's SHA-256 against the manifest, which comes from the attested `winget-manifests-<version>.zip` of the release and is reviewed and validated by `microsoft/winget-pkgs`. Neither checks the cosign signature. npm is deliberately not offered.
-
-Neither channel works yet. Homebrew needs the tap repository `Kyotu-Technology/homebrew-tap`, which does not exist yet, and WinGet needs the manifests to be submitted to `microsoft/winget-pkgs` by hand and merged; [release.md](release.md#after-a-release) has the steps. A real `brew install` and a real `winget install` have not been tested. When Kanjo runs from a Homebrew keg (`<prefix>/Cellar/kanjo/<version>/bin/kanjo`), `kanjo up` records `<prefix>/bin/kanjo` instead, provided that link resolves to the same file, so the background service and the status line keep working after `brew upgrade`; this has not been tested with a real Homebrew install.
-
-The binaries are built for Linux x86_64 and arm64 (static musl), macOS 11 or newer on Apple silicon and Intel, and Windows x86_64. Windows on ARM64 runs the x86_64 build under emulation; the WinGet manifest declares x64 only.
+The binaries are built for Linux x86_64 and arm64 (static musl), macOS 11 or newer on Apple silicon and Intel, and Windows x86_64. Windows on ARM64 runs the x86_64 build under emulation.
 
 ## From source
 

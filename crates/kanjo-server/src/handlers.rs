@@ -353,7 +353,7 @@ async fn system(State(s): State<AppState>, ApiQuery(q): ApiQuery) -> ApiResult<S
         ingest.last_event_at = ingest.last_event_at.or(stored.1);
         let hooks = hook_status(i, &ctx)?;
         let service = if hooks.service_installed { ServiceState::Installed } else { ServiceState::NotInstalled };
-        let exe = if i.demo { None } else { kanjo_setup::current_exe().ok() };
+        let exe = if i.demo { None } else { std::env::current_exe().ok() };
         let mut input = kanjo_setup::doctor::DoctorInput::new(&i.paths, &config, ctx.now);
         input.exe = exe.as_deref();
         input.database = Some(database.clone());
@@ -405,7 +405,7 @@ async fn install_hooks(State(s): State<AppState>, caller: Caller, ApiJson(req): 
         return Err(ApiErr::disabled("the hook installer is disabled in demo mode"));
     }
     s.db(move |i, ctx| {
-        let exe = kanjo_setup::current_exe().map_err(kanjo_core::Error::from)?;
+        let exe = std::env::current_exe().map_err(kanjo_core::Error::from)?;
         let report = with_disk_config(i, |config| kanjo_setup::claude::install(&i.paths, config, &req, &exe))?;
         if req.service {
             kanjo_setup::service::install(&exe, &i.paths)?;
@@ -429,7 +429,7 @@ async fn remove_hooks(State(s): State<AppState>, caller: Caller) -> ApiResult<Ho
         return Err(ApiErr::disabled("the hook installer is disabled in demo mode"));
     }
     s.db(move |i, ctx| {
-        let exe = kanjo_setup::current_exe().map_err(kanjo_core::Error::from)?;
+        let exe = std::env::current_exe().map_err(kanjo_core::Error::from)?;
         let report = with_disk_config(i, |config| kanjo_setup::claude::uninstall(&i.paths, config, &exe))?;
         let detail = json!({ "changed": report.changed });
         audit(i, &caller, "hooks.uninstall", &report.settings_path.display().to_string(), detail)?;

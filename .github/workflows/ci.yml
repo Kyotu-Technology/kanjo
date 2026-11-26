@@ -226,9 +226,6 @@ jobs:
       - name: Test install.sh
         if: runner.os != 'Windows'
         run: sh scripts/test-install.sh
-      - name: Test the Homebrew formula and WinGet manifest generators
-        if: runner.os == 'Linux'
-        run: sh scripts/test-packaging.sh
       - name: Test install.ps1 under Windows PowerShell 5.1
         if: runner.os == 'Windows'
         shell: powershell

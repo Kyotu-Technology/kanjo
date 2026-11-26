@@ -208,13 +208,6 @@ jobs:
         run: |
           LC_ALL=C sha256sum kanjo-* install.sh install.ps1 > SHA256SUMS
           cat SHA256SUMS
-      - name: Homebrew formula and WinGet manifests
-        run: |
-          # Both are generated from SHA256SUMS, so they cannot be listed in it; the
-          # build provenance attestation of the sign job covers them instead.
-          KANJO_REPO_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" scripts/release-packages.sh dist
-          cat dist/kanjo.rb
-          unzip -l "dist/winget-manifests-$VERSION.zip"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
@@ -274,8 +267,6 @@ jobs:
             dist/kanjo-*.cdx.json
             dist/install.sh
             dist/install.ps1
-            dist/kanjo.rb
-            dist/winget-manifests-*.zip
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signed
