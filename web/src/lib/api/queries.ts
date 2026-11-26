@@ -48,7 +48,11 @@ export const queries = {
   insights: (): QueryOptions<Insights> => ({ key: 'insights', fetch: () => api().insights(), tags: ['usage'], staleMs: 120_000 }),
   alerts: (p: QueryParams): QueryOptions<AlertList> => ({ key: queryKey('alerts', p), fetch: () => api().alerts(p), tags: ['alerts'] }),
   budgets: (): QueryOptions<Budget[]> => ({ key: 'budgets', fetch: () => api().budgets(), tags: ['budgets', 'usage'] }),
-  system: (): QueryOptions<SystemInfo> => ({ key: 'system', fetch: () => api().system(), tags: ['system', 'ingest'] }),
+  system: (lang?: string): QueryOptions<SystemInfo> => ({
+    key: lang ? queryKey('system', { lang }) : 'system',
+    fetch: () => api().system(lang ? { lang } : {}),
+    tags: ['system', 'ingest'],
+  }),
   backups: (): QueryOptions<BackupInfo[]> => ({ key: 'backups', fetch: () => api().backups(), tags: ['system'] }),
   audit: (p: QueryParams): QueryOptions<AuditPage> => ({ key: queryKey('audit', p), fetch: () => api().audit(p), tags: ['system'] }),
 };

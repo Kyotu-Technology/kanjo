@@ -1,5 +1,6 @@
 [package]
 name = "kanjo"
+description = "Offline cost and limit monitor for Claude Code"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +9,34 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[[bin]]
+name = "kanjo"
+path = "src/main.rs"
+
+[features]
+default = ["server"]
+server = ["dep:kanjo-server"]
+
 [dependencies]
+kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
+kanjo-ingest = { version = "0.1.0", path = "../kanjo-ingest" }
+kanjo-analytics = { version = "0.1.0", path = "../kanjo-analytics" }
+kanjo-alerts = { version = "0.1.0", path = "../kanjo-alerts" }
+kanjo-ops = { version = "0.1.0", path = "../kanjo-ops" }
+kanjo-setup = { version = "0.1.0", path = "../kanjo-setup" }
+kanjo-server = { version = "0.1.0", path = "../kanjo-server", optional = true }
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+open = "5"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+rusqlite = { version = "0.40.2", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "ansi"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3"

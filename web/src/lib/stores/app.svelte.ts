@@ -2,7 +2,7 @@ import { ApiClient, defaultBaseUrl, type FetchLike } from '../api/client';
 import { QueryCache } from '../api/cache';
 import type { Alert, IngestStatus, Limits, Overview, Settings, Theme } from '../api/contract';
 import { asApiError } from '../api/errors';
-import { LiveConnection, TagBatcher, tagsFor, type EventSourceLike, type LiveStatus } from '../api/live';
+import { LiveConnection, TagBatcher, tagsFor, watchAuth, type EventSourceLike, type LiveStatus } from '../api/live';
 import { i18n, resolveLang, setLang, t, type Lang } from '../i18n/index.svelte';
 import { theme } from './theme.svelte';
 import { toasts } from './toast.svelte';
@@ -115,13 +115,22 @@ function onLiveEvent(batcher: TagBatcher, e: Parameters<typeof tagsFor>[0]): voi
   batcher.add(tagsFor(e));
 }
 
+const authWatch = watchAuth(
+  () => api().settings(),
+  () => app.auth === 'unauthorized',
+  () => live?.stop(),
+);
+
 function startLive(): void {
   const batcher = new TagBatcher((tags) => cache.invalidate(tags), 400);
   live = new LiveConnection({
     url: api().eventsUrl(),
     create: createEventSource,
     onEvent: (e) => onLiveEvent(batcher, e),
-    onStatus: (s) => (app.live = s),
+    onStatus: (s, attempt) => {
+      app.live = s;
+      authWatch(s, attempt);
+    },
   });
   live.start();
   document.addEventListener('visibilitychange', () => {
@@ -194,6 +203,7 @@ export async function retryAuth(): Promise<void> {
     applySettings(await api().settings(), { fromUrl: true });
     app.boot = 'ready';
     if (!live) startLive();
+    else live.start();
     void refreshUnread();
   } catch (e) {
     if ((app.auth as AuthState) !== 'unauthorized') {

@@ -1,80 +1,118 @@
 <script lang="ts">
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
-  import ShareBars from '../lib/charts/ShareBars.svelte';
-  import { modelLabel } from '../lib/charts/series';
-  import { fmt, t } from '../lib/i18n/index.svelte';
+  import { fmt, t, tk } from '../lib/i18n/index.svelte';
+  import { describeError } from '../lib/stores/app.svelte';
+  import Banner from '../lib/ui/Banner.svelte';
+  import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
-  import EmptyState from '../lib/ui/EmptyState.svelte';
-  import InlineHelp from '../lib/ui/InlineHelp.svelte';
-  import Money from '../lib/ui/Money.svelte';
+  import ConfidenceBadge from '../lib/ui/ConfidenceBadge.svelte';
   import PageHeader from '../lib/ui/PageHeader.svelte';
   import Skeleton from '../lib/ui/Skeleton.svelte';
+  import Anomalies from './insights/Anomalies.svelte';
+  import CacheSection from './insights/CacheSection.svelte';
+  import ContextCard from './insights/ContextCard.svelte';
+  import ModelMix from './insights/ModelMix.svelte';
+  import PlanFitCard from './insights/PlanFitCard.svelte';
 
   const insights = useQuery(() => queries.insights());
+  const plan = useQuery(() => queries.plan());
   const d = $derived(insights.data);
+  const p = $derived(plan.data);
+  const err = $derived((insights.error && !d) || (plan.error && !p));
+
+  const answer = $derived.by(() => {
+    if (!p) return '';
+    const name = tk(`plan.${p.plan.kind}`);
+    const target = p.target ? tk(`plan.${p.target}`) : '';
+    if (p.action === 'unknown') return p.reason === 'no_plan' ? t('pages.insights.answer.no_plan') : t('pages.insights.answer.no_history');
+    if (p.action === 'upgrade') return t('pages.insights.answer.upgrade', { plan: name, target });
+    if (p.action === 'downgrade')
+      return p.target === 'api' || p.reason === 'api_cheaper' ? t('pages.insights.answer.api', { plan: name }) : t('pages.insights.answer.downgrade', { plan: name, target });
+    if (p.reason === 'frequent_limit_hits') return t('pages.insights.answer.keep_hot', { plan: name });
+    if (p.roi === null) return t('pages.insights.answer.unpriced');
+    return t('pages.insights.answer.keep', { plan: name, value: fmt.money(p.api_equivalent_usd, { digits: 0 }), multiple: fmt.number(p.roi, 1) });
+  });
 </script>
 
-<PageHeader title={t('pages.insights.title')} lede={t('pages.insights.lede')} />
+<PageHeader title={t('pages.insights.title')} lede={t('pages.insights.lede')}>
+  {#snippet meta()}
+    {#if d}<span>{t('common.updated', { ago: fmt.ago(d.generated_at) })}</span>{/if}
+  {/snippet}
+</PageHeader>
 
-{#if d}
-  <div class="grid">
-    <Card title={t('pages.insights.cache')}>
-      {#snippet actions()}<InlineHelp text={t('pages.insights.cache_help')} />{/snippet}
-      <p class="big">{d.cache.hit_ratio === null ? t('common.unknown') : fmt.ratio(d.cache.hit_ratio)}</p>
-      <ShareBars
-        label={t('pages.insights.cache')}
-        shareFormat={() => ''}
-        rows={d.cache.by_project.map((r) => ({ key: r.key, label: r.label, value: r.hit_ratio === null ? '' : fmt.ratio(r.hit_ratio), share: r.hit_ratio ?? 0 }))}
-      />
-    </Card>
-    <Card title={t('pages.insights.suggestions')}>
-      {#if d.model_mix.length}
-        <ul class="sugg">
-          {#each d.model_mix as m (m.code)}
-            <li>
-              <p class="title">{modelLabel(m.from_model)}, {modelLabel(m.to_model)}</p>
-              <p class="saving">{t('pages.insights.saving', { value: '' })}<Money usd={m.saving_usd} confidence={m.confidence} size="sm" badge="seal" /></p>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <EmptyState compact title={t('pages.insights.no_suggestions')} />
-      {/if}
-    </Card>
-  </div>
-  <p class="preview">{t('pages.preview')}</p>
+{#if err}
+  <Banner tone="warning" title={t('common.error_title')} body={describeError(insights.error ?? plan.error)}>
+    {#snippet action()}<Button icon="refresh" onclick={() => (insights.refetch(), plan.refetch())}>{t('common.retry')}</Button>{/snippet}
+  </Banner>
 {:else}
-  <Card><Skeleton lines={5} /></Card>
+  {#if p}
+    <section class="answer" aria-labelledby="insights-answer">
+      <p id="insights-answer" class="sentence">{answer}</p>
+      {#if p.action !== 'unknown' && p.roi !== null}<p class="badge"><ConfidenceBadge confidence={p.confidence} /></p>{/if}
+    </section>
+  {:else}
+    <div class="sk-answer" aria-busy="true"><Skeleton height="2.2rem" lines={2} /></div>
+  {/if}
+
+  <div class="stack">
+    {#if p}<PlanFitCard plan={p} refreshing={plan.refreshing} />{:else}<Card><Skeleton lines={6} /></Card>{/if}
+    {#if d}
+      <div class="two">
+        <ModelMix items={d.model_mix} refreshing={insights.refreshing} />
+        <ContextCard items={d.context_warnings} refreshing={insights.refreshing} />
+      </div>
+      <CacheSection cache={d.cache} refreshing={insights.refreshing} />
+      <Anomalies items={d.anomalies} refreshing={insights.refreshing} />
+    {:else}
+      <div class="two">
+        <Card><Skeleton lines={5} /></Card>
+        <Card><Skeleton lines={5} /></Card>
+      </div>
+      <Card><Skeleton height="200px" radius="var(--r-md)" /></Card>
+    {/if}
+  </div>
 {/if}
 
 <style>
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: var(--sp-5);
+  .answer {
+    padding: 0 0 var(--sp-6);
   }
-  .big {
-    font-size: var(--fs-2xl);
-    font-weight: var(--fw-semibold);
-    margin-bottom: var(--sp-4);
+  .sentence {
+    font-size: var(--fs-3xl);
+    font-weight: var(--fw-medium);
+    line-height: 1.18;
+    letter-spacing: -0.025em;
+    max-width: 32ch;
+    text-wrap: balance;
   }
-  .sugg li + li {
+  .badge {
     margin-top: var(--sp-3);
   }
-  .title {
-    font-weight: var(--fw-semibold);
+  .sk-answer {
+    max-width: 560px;
+    padding-bottom: var(--sp-6);
   }
-  .saving {
+  .stack {
     display: flex;
-    align-items: center;
-    gap: var(--sp-1);
-    color: var(--ink-2);
-    font-size: var(--fs-sm);
+    flex-direction: column;
+    gap: var(--sp-5);
   }
-  .preview {
-    margin-top: var(--sp-5);
-    color: var(--ink-3);
-    font-size: var(--fs-sm);
+  .two {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: var(--sp-5);
+    align-items: start;
+  }
+  @media (max-width: 1180px) {
+    .two {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 860px) {
+    .stack,
+    .two {
+      gap: var(--sp-4);
+    }
   }
 </style>

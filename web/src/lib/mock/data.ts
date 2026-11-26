@@ -5,8 +5,8 @@ import type { Alert, AuditEntry, BackupInfo, BudgetInput, HookStatus, IngestStat
  * same request records, so totals agree across pages. All names are invented.
  */
 
-export type Scenario = 'default' | 'onboarding' | 'empty' | 'import' | 'nostatusline' | 'unpriced' | 'unauthorized';
-export const SCENARIOS: readonly Scenario[] = ['default', 'onboarding', 'empty', 'import', 'nostatusline', 'unpriced', 'unauthorized'];
+export type Scenario = 'default' | 'onboarding' | 'empty' | 'import' | 'nostatusline' | 'unpriced' | 'unauthorized' | 'redacted' | 'viewer' | 'gateway' | 'expired' | 'tampered';
+export const SCENARIOS: readonly Scenario[] = ['default', 'onboarding', 'empty', 'import', 'nostatusline', 'unpriced', 'unauthorized', 'redacted', 'viewer', 'gateway', 'expired', 'tampered'];
 
 export interface Price {
   input: number;
@@ -76,6 +76,10 @@ export interface Dataset {
   fiveHourCeilingUsd: number;
   weeklyCeilingUsd: number;
   weeklyResetsAt: number;
+  /** Since when statusline readings exist; blocks after it are anchored to a real reset. */
+  statuslineSince: number | null;
+  /** Extra-usage spend limit behind a gateway (gateway scenario). */
+  spendLimitUsd: number | null;
   nextId: number;
 }
 
@@ -383,6 +387,8 @@ export function createDataset(opts: DatasetOptions = {}): Dataset {
     settings.plan = { kind: 'unknown', monthly_usd: null };
     settings.privacy = { session_titles: false, redact_paths: false, conversation_viewer: false };
   }
+  if (scenario === 'redacted') settings.privacy.redact_paths = true;
+  if (scenario === 'viewer') settings.privacy.conversation_viewer = true;
 
   let records = generated.records;
   let pending: MockRecord[] = [];
@@ -425,16 +431,19 @@ export function createDataset(opts: DatasetOptions = {}): Dataset {
     ingest,
     hooks,
     alerts: [],
-    budgets: [
+    budgets: scenario === 'empty' ? [] : [
       { id: 1, name: 'Monthly spend', scope: 'global', scope_value: null, period: 'month', amount_usd: 900, warn_pct: 80, enabled: true },
-      { id: 2, name: 'Northwind billing work', scope: 'project', scope_value: '1', period: 'month', amount_usd: 220, warn_pct: 80, enabled: true },
+      { id: 2, name: 'Northwind billing work', scope: 'project', scope_value: '1', period: 'month', amount_usd: 165, warn_pct: 80, enabled: true },
       { id: 3, name: 'Daily cap', scope: 'global', scope_value: null, period: 'day', amount_usd: 60, warn_pct: 75, enabled: true },
+      { id: 4, name: 'Northwind Logistics weekly', scope: 'client', scope_value: 'Northwind Logistics', period: 'week', amount_usd: 320, warn_pct: 80, enabled: true },
     ],
     audit: [],
     backups: [],
     fiveHourCeilingUsd: 1,
     weeklyCeilingUsd: 1,
     weeklyResetsAt,
+    statuslineSince: connected ? now - 34 * DAY : null,
+    spendLimitUsd: scenario === 'gateway' ? 150 : null,
     nextId: 1,
   };
   calibrate(ds);
@@ -467,8 +476,12 @@ function seedAlerts(ds: Dataset): void {
   const push = (a: Omit<Alert, 'id' | 'title' | 'message'>) => ds.alerts.push({ ...a, id: ds.nextId++, title: '', message: '' });
   push({ ts: now - 26 * 60_000, kind: 'limit_forecast', severity: 'warning', params: { window: 'seven_day' }, acknowledged_at: null });
   push({ ts: now - 3 * HOUR, kind: 'budget_warning', severity: 'warning', params: { budget_id: 2, pct: 84 }, acknowledged_at: null });
-  push({ ts: now - 5 * HOUR, kind: 'context_near_limit', severity: 'info', params: { pct: 88 }, acknowledged_at: null });
-  push({ ts: now - 2 * DAY, kind: 'cache_miss_streak', severity: 'info', params: { misses: 4, project: 'quill-api' }, acknowledged_at: now - 2 * DAY + HOUR });
+  const ctxSession = ds.sessions.find((s) => s.project === 1 && s.last >= now - 10 * 60_000);
+  const quill = [...ds.sessions].reverse().find((s) => s.project === 3 && s.last < now - 2 * DAY);
+  const costly = [...ds.sessions].reverse().find((s) => s.project === 2 && s.last < now - DAY);
+  push({ ts: now - 5 * HOUR, kind: 'context_near_limit', severity: 'info', params: { pct: 88, session_id: ctxSession?.id ?? null, project_id: 1, project: 'atlas-billing' }, acknowledged_at: null });
+  push({ ts: now - 2 * DAY, kind: 'cache_miss_streak', severity: 'info', params: { misses: 4, session_id: quill?.id ?? null, project_id: 3, project: 'quill-api' }, acknowledged_at: now - 2 * DAY + HOUR });
+  push({ ts: costly ? costly.last : now - 30 * HOUR, kind: 'runaway_session', severity: 'critical', params: { ratio: 3.1, session_id: costly?.id ?? null, project_id: 2, project: 'harbor-web' }, acknowledged_at: (costly ? costly.last : now - 30 * HOUR) + 40 * 60_000 });
   push({ ts: now - 4 * DAY, kind: 'cost_spike', severity: 'warning', params: { ratio: 2.4 }, acknowledged_at: now - 4 * DAY + 2 * HOUR });
   push({ ts: now - 6 * DAY, kind: 'limit_threshold', severity: 'warning', params: { window: 'five_hour', pct: 90 }, acknowledged_at: now - 6 * DAY + 600_000 });
   ds.alerts.sort((a, b) => b.ts - a.ts);

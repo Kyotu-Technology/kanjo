@@ -9,7 +9,34 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+axum = "0.8"
+base64 = "0.22"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+getrandom = "0.3"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1", "server-graceful", "service"] }
+kanjo-alerts = { version = "0.1.0", path = "../kanjo-alerts" }
+kanjo-analytics = { version = "0.1.0", path = "../kanjo-analytics" }
 kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
+kanjo-ingest = { version = "0.1.0", path = "../kanjo-ingest" }
+kanjo-ops = { version = "0.1.0", path = "../kanjo-ops" }
+kanjo-setup = { version = "0.1.0", path = "../kanjo-setup" }
+rusqlite = { version = "0.40.2", default-features = false }
+rust-embed = { version = "8", features = ["debug-embed", "interpolate-folder-path"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util"] }
+http-body-util = "0.1"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+tempfile = "3"

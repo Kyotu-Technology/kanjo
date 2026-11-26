@@ -37,6 +37,8 @@
     terminal: 'M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4',
     dot: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
     folder_open: 'M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5V10M3 8v9l3-7h15l-3 9H5',
+    pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+    plus: 'M12 5v14M5 12h14',
   } as const;
   export type IconName = keyof typeof PATHS;
 </script>

@@ -4,6 +4,7 @@
   import { fmt, t } from '../../lib/i18n/index.svelte';
   import ConfidenceBadge from '../../lib/ui/ConfidenceBadge.svelte';
   import LimitMeter from '../../lib/ui/LimitMeter.svelte';
+  import SpendMeter from '../../lib/ui/SpendMeter.svelte';
 
   interface Props {
     limits: Limits;
@@ -55,6 +56,7 @@
     <div class="meters">
       <LimitMeter name={t('dashboard.limits.five_hour')} window={limits.five_hour} windowMs={5 * 3_600_000} />
       <LimitMeter name={t('dashboard.limits.seven_day')} window={limits.seven_day} windowMs={7 * 86_400_000} />
+      {#if limits.spend}<SpendMeter spend={limits.spend} compact />{/if}
     </div>
   {/if}
 </section>

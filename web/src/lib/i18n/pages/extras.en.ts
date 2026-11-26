@@ -1,0 +1,38 @@
+/** Cross-cutting texts: keyboard shortcuts, the not-found page and print headers. */
+export default {
+  shortcuts: {
+    title: 'Keyboard shortcuts',
+    intro: 'Kanjo can be used without a mouse. These keys work on every page.',
+    open: 'Show keyboard shortcuts',
+    palette: 'Open the command menu to search, jump to a page or run an action',
+    help: 'Show this list',
+    tab: 'Move to the next control; add Shift to go back',
+    activate: 'Press a button, follow a link or toggle a switch',
+    escape: 'Close a dialog, menu or explanation',
+    arrows: 'Move between tabs and options in a group',
+    palette_move: 'Move through results in the command menu',
+    palette_open: 'Open the highlighted result',
+    skip: 'The first Tab on a page offers a jump straight to its content',
+    keys_tab: 'Tab',
+    keys_enter: 'Enter or Space',
+    keys_escape: 'Esc',
+    keys_arrows: 'Arrow keys',
+    keys_updown: 'Up and Down',
+    keys_return: 'Enter',
+    general: 'Everywhere',
+    in_palette: 'In the command menu',
+    hint: 'Press {key} at any time to see this list.',
+  },
+  not_found: {
+    code: '404',
+    title: 'This page is not in Kanjo',
+    body: 'The address {path} does not match any page. It may come from an old bookmark, or a session or project that has since been deleted.',
+    home: 'Open the dashboard',
+    search: 'Search Kanjo',
+    try: 'Or go straight to',
+  },
+  print: {
+    header: 'Kanjo report, printed {date}. Figures as recorded on this computer.',
+    footer: 'Money figures carry their confidence: Official is reported by Claude Code, Estimate is worked out by Kanjo, At least is added up from session files.',
+  },
+};

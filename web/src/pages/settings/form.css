@@ -1,0 +1,135 @@
+/* Form parts shared by the Settings and System pages; scoped under .kj-form. */
+.kj-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.kj-form .field > .label,
+.kj-form .label-text {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.kj-form .hint {
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  max-width: 64ch;
+}
+.kj-form .err {
+  color: var(--critical-ink);
+  font-size: var(--fs-sm);
+}
+.kj-form .input {
+  min-height: 38px;
+  width: 100%;
+  max-width: 260px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kj-form .input.short {
+  max-width: 96px;
+}
+.kj-form .input[aria-invalid='true'] {
+  border-color: var(--critical);
+}
+.kj-form .input:disabled {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.kj-form .affix {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.kj-form .form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+.kj-form .note {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.kj-form .note > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-3);
+}
+.kj-form .note.warn {
+  background: var(--warning-soft);
+  color: var(--warning-ink);
+}
+.kj-form .note.warn > svg {
+  color: var(--warning-ink);
+}
+.kj-form .rows > * + * {
+  border-top: 1px solid var(--line);
+}
+.kj-form .subhead {
+  margin: var(--sp-6) 0 var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+.kj-form .subhead:first-child {
+  margin-top: 0;
+}
+.kj-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.kj-form legend {
+  padding: 0;
+}
+.kj-form .seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+}
+.kj-form .seg label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  border-radius: calc(var(--r-sm) - 2px);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.kj-form .seg input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.kj-form .seg label:has(input:checked) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-raise);
+}
+.kj-form .seg label:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

@@ -135,6 +135,28 @@ export class LiveConnection {
   }
 }
 
+/**
+ * EventSource never exposes the HTTP status, so a refused stream looks like a
+ * network blip. After each drop this makes one authenticated request; when
+ * that comes back 401 (the client then reports it), onRefused stops the stream.
+ */
+export function watchAuth(probe: () => Promise<unknown>, refused: () => boolean, onRefused: () => void): (s: LiveStatus, attempt: number) => void {
+  let probed = -1;
+  let busy = false;
+  return (s, attempt) => {
+    if (s === 'open') probed = -1;
+    if (s !== 'reconnecting' || busy || attempt === probed) return;
+    probed = attempt;
+    busy = true;
+    probe()
+      .catch(() => undefined)
+      .finally(() => {
+        busy = false;
+        if (refused()) onRefused();
+      });
+  };
+}
+
 /** Collects tags for a short window so a burst of events causes one refetch. */
 export class TagBatcher {
   private pending = new Set<string>();
