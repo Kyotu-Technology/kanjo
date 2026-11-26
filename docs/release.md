@@ -76,8 +76,10 @@ The installers run this check themselves when `cosign` is on `PATH`, with the id
 The provenance attestation can be checked with the GitHub CLI, which verifies that the archive was built by a workflow in this repository:
 
 ```sh
-gh attestation verify kanjo-0.1.0-x86_64-unknown-linux-musl.tar.gz --repo "${REPO#https://github.com/}"
+gh attestation verify kanjo-0.1.0-x86_64-unknown-linux-musl.tar.gz --repo Kyotu-Technology/kanjo
 ```
+
+The GitHub CLI has to be signed in (`gh auth login` or `GH_TOKEN`) and recent enough to have the `attestation` command; version 2.45 does not have it.
 
 Finally, the dependency list inside an installed binary can be compared with the published SBOM or audited directly with `cargo audit bin "$(command -v kanjo)"`.
 

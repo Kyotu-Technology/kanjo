@@ -24,15 +24,10 @@ Size: S. Depends: K-032.
 Why: if the Windows session shows that the path kanjo up records still changes on winget upgrade, K-005 alone does not fix it.
 Done when: the recorded path is mapped to a stable one in Rust as K-004 does for Homebrew, with a test, or the session has shown it is not needed and the entry is deleted.
 
-### K-010 Homebrew tap content
-Size: M.
-Why: the Homebrew channel lives in its own tap repository, outside this repository's release path (D-003), and the v0.1.0 archives are attested, so the tap can be proven before v0.2.0.
-Done when: a formula (not a cask), a README and an update workflow exist; the workflow needs no secret from this repository, verifies each archive with gh attestation verify, runs brew style, audit, install and test, and has a dry-run mode.
-
 ### K-006 Create the tap repository
-Size: S. Depends: K-010.
+Size: S.
 Why: the Homebrew channel needs its own public tap repository, outside this repository (D-003).
-Done when: Kyotu-Technology/homebrew-tap is public, Actions may write its contents, a ruleset blocks force pushes and deletion, the update workflow has dry-run against v0.1.0, and after v0.2.0 (K-007) a real run has published the formula.
+Done when: Kyotu-Technology/homebrew-tap is public and holds the formula generator, a README and the update workflow (which verifies each archive with gh attestation verify, runs brew style, audit, install and test, and needs no secret from this repository), Actions may write its contents, a ruleset blocks force pushes and deletion, the workflow has run dry against v0.1.0, and after v0.2.0 (K-007) a real run has published the formula.
 
 ### K-007 Release v0.2.0 through a release candidate
 Size: S.
@@ -54,13 +49,13 @@ Size: S.
 Why: the five alerts were all in test or mock code; the tag-stripping expressions in web/src/csp.test.ts and the error body of the mock were changed, and the alerts close only after a CodeQL run on main.
 Done when: after that run, alerts 1-3 and 5 are closed or dismissed with a reason, and alert 4 (random latency in the mock) is dismissed as used in tests.
 
-### K-029 Verify the published release by hand on Linux
+### K-029 Finish verifying the published release by hand on Linux
 Size: S.
-Why: the release signature has been verified only inside the release workflow, and the systemd user service and the sign-in from a sandboxed browser have not run for real.
-Done when: cosign verify-blob, gh attestation verify and install.sh with cosign present have run against the published release in a temporary home; the systemd user service and the sign-in from a Snap or Flatpak browser have run in a virtual machine with a desktop; docs/status.md states the results.
+Why: the cosign signature has been verified by hand and by install.sh, but the provenance attestations have not, and the systemd user service and the sign-in from a sandboxed browser have not run for real.
+Done when: gh attestation verify has run against the published release, the systemd user service and the sign-in from a Snap or Flatpak browser have run in a virtual machine with a desktop, and docs/status.md states the results.
 
 ### K-031 macOS session
-Size: M. Depends: K-010.
+Size: M. Depends: K-006.
 Why: the published release has not been installed by hand on macOS, and the session shows whether K-004 is enough there.
 Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, a brew install from the tap has run with the recorded path noted, after v0.2.0 brew upgrade has kept that path, and docs/status.md states the results.
 
