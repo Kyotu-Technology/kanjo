@@ -77,7 +77,7 @@
             ]
               .filter(Boolean)
               .join(', ')}
-            <span class="near">{tn('pages.insights.plan.near', p.blocks_near_limit)}</span>
+            {#if p.max_five_hour_pct !== null}<span class="near">{tn('pages.insights.plan.near', p.blocks_near_limit)}</span>{/if}
           </dd>
         </div>
       {/if}
