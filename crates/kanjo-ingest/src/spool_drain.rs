@@ -239,7 +239,7 @@ fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, applied
         ])?;
     }
     if let Some(name) = session_name {
-        tx.prepare("UPDATE sessions SET title = ?2 WHERE id = ?1 AND title IS NOT ?2")?.execute(params![r.session_id, name])?;
+        kanjo_core::store::write::set_session_title(tx, &r.session_id, Some(name))?;
     }
     Ok(())
 }

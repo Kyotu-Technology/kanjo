@@ -13,7 +13,7 @@ pub(crate) const MAIN_AGENT: &str = "main";
 /// Key under which breakdowns report projects without a client.
 pub(crate) const UNASSIGNED: &str = "unassigned";
 /// A session counts as active while its last request is at most this old.
-pub(crate) const ACTIVE_SESSION_MS: i64 = 10 * MINUTE_MS;
+pub(crate) const ACTIVE_SESSION_MS: i64 = kanjo_core::time::ACTIVE_SESSION_MS;
 /// Burn rates look back this far.
 pub(crate) const BURN_WINDOW_MIN: i64 = 60;
 

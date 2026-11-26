@@ -5,6 +5,9 @@ pub const HOUR_MS: i64 = 3_600_000;
 pub const DAY_MS: i64 = 86_400_000;
 pub const FIVE_HOURS_MS: i64 = 5 * HOUR_MS;
 pub const SEVEN_DAYS_MS: i64 = 7 * DAY_MS;
+/// A session counts as active while its last request is this recent. Shared by
+/// the dashboard and the alert rules so they agree on what "running" means.
+pub const ACTIVE_SESSION_MS: i64 = 15 * MINUTE_MS;
 
 /// Evaluation context passed to every query: "now" and how to cut local days.
 /// Tests construct it directly; production code uses `Ctx::system()`.

@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
 
 [lints]
 workspace = true

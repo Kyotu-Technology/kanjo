@@ -317,10 +317,10 @@ impl<'a> Writer<'a> {
             }
             let Some(meta) = self.pending.remove(session) else { continue };
             if let (Some(title), true) = (meta.title, self.titles) {
-                tx.prepare("UPDATE sessions SET title = ?2 WHERE id = ?1 AND title IS NOT ?2")?.execute(params![session, title])?;
+                kanjo_core::store::write::set_session_title(tx, session, Some(title.as_str()))?;
             }
             if let Some(account) = meta.account {
-                tx.prepare("UPDATE sessions SET account = ?2 WHERE id = ?1 AND account IS NOT ?2")?.execute(params![session, account])?;
+                kanjo_core::store::write::set_session_account(tx, session, account.as_str())?;
             }
         }
         Ok(())
