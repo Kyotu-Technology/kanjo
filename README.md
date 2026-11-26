@@ -42,7 +42,13 @@ curl -fsSL https://github.com/Kyotu-Technology/kanjo/releases/latest/download/in
 irm https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.ps1 | iex
 ```
 
-The scripts check the archive against the release's `SHA256SUMS` and, when cosign is installed, its Sigstore signature. They need no sudo or administrator rights. Then:
+**Homebrew (macOS and Linux)**
+
+```sh
+brew install kyotu-technology/tap/kanjo
+```
+
+The scripts check the archive against the release's `SHA256SUMS` and, when cosign is installed, its Sigstore signature, and need no sudo or administrator rights. The Homebrew formula installs the same archive, pinned to its SHA-256. Then:
 
 ```sh
 kanjo demo    # 30 days of synthetic data in a temporary directory, no account, never reads ~/.claude

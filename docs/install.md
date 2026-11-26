@@ -2,7 +2,7 @@
 
 Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
-Kanjo is a single binary with no runtime dependencies. You can install a release with a script or build it from source; then `kanjo up` connects it to Claude Code.
+Kanjo is a single binary with no runtime dependencies. You can install a release with a script or with Homebrew, or build it from source; then `kanjo up` connects it to Claude Code.
 
 ## With the install script
 
@@ -33,6 +33,28 @@ The parameters are `-Version`, `-Dir`, `-Archive`, `-Sums`, `-NoVerify`, `-SkipS
 The scripts contact GitHub to download the release. Kanjo itself never does; with `--archive` (`-Archive`) the scripts work offline too. How to verify a download by hand is described in [release.md](release.md#verifying-a-download).
 
 The binaries are built for Linux x86_64 and arm64 (static musl), macOS 11 or newer on Apple silicon and Intel, and Windows x86_64. Windows on ARM64 runs the x86_64 build under emulation. The macOS binaries are not notarized by Apple and the Windows binary is not Authenticode-signed; [release.md](release.md#targets-and-toolchains) says what that means when you first start them.
+
+## With Homebrew
+
+On **macOS and Linux**, Kanjo can also be installed from the Kyotu Technology tap, [Kyotu-Technology/homebrew-tap](https://github.com/Kyotu-Technology/homebrew-tap):
+
+```sh
+brew install kyotu-technology/tap/kanjo
+kanjo up
+```
+
+The formula installs the prebuilt binary of the latest Kanjo release for your platform, the same archive the install script downloads, pinned to its SHA-256; nothing is built from source. How the tap takes the formula from a release is described in [release.md](release.md#install-channels). A formula install is not quarantined by macOS, so the binary starts although it is not notarized. `kanjo up` writes the path of Homebrew's link, `<prefix>/bin/kanjo` (`/opt/homebrew/bin/kanjo` on Apple silicon, `/usr/local/bin/kanjo` on an Intel Mac, `/home/linuxbrew/.linuxbrew/bin/kanjo` on Linux), into `settings.json` and the background service, not the versioned path under `Cellar` that `brew upgrade` removes.
+
+To upgrade:
+
+```sh
+brew upgrade kanjo
+kanjo service install
+```
+
+`brew upgrade` replaces the binary but not the server that is already running; `kanjo service install` restarts the background service on the new version. The status line and the hooks run the new binary straight away. To remove Kanjo, run `kanjo uninstall` first, while the binary is still there, then `brew uninstall kanjo`, and `brew untap kyotu-technology/tap` if you no longer want the tap. The formula prints these steps as caveats when it is installed. If Homebrew refuses to use a third-party tap by the formula's short name, the [tap's README](https://github.com/Kyotu-Technology/homebrew-tap#install-upgrade-and-remove) says what to run.
+
+Under Homebrew, the tap's workflow has installed the formula and run `brew test` on GitHub's macOS and Linux runners; `kanjo up`, the LaunchAgent and `brew upgrade` have not been run under Homebrew on a Mac. [status.md](status.md) has the details.
 
 ## From source
 
@@ -68,4 +90,4 @@ Finally it opens the dashboard in your browser and signs you in. `--no-hooks` le
 
 ## Undoing it: `kanjo uninstall`
 
-`kanjo uninstall` removes Kanjo's status line from `settings.json` (putting back your previous status line if Kanjo was chained in front of it), removes its three hooks, and stops and removes the background service. Your Kanjo data stays unless you add `--purge-data`, which deletes the data directory; it refuses while a Kanjo server is still running and refuses a directory that does not look like Kanjo's. Three things are left for you to remove by hand if you want: the `settings.json.kanjo-backup-*` copies, the binary itself (and on Windows the `PATH` entry the installer added), and, if the database key was kept in the system keyring, its `kanjo` entry.
+`kanjo uninstall` removes Kanjo's status line from `settings.json` (putting back your previous status line if Kanjo was chained in front of it), removes its three hooks, and stops and removes the background service. Your Kanjo data stays unless you add `--purge-data`, which deletes the data directory; it refuses while a Kanjo server is still running and refuses a directory that does not look like Kanjo's. Three things are left for you to remove by hand if you want: the `settings.json.kanjo-backup-*` copies, the binary itself (for a Homebrew install, `brew uninstall kanjo`; on Windows also the `PATH` entry the installer added), and, if the database key was kept in the system keyring, its `kanjo` entry.

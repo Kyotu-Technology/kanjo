@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- Kanjo can be installed with Homebrew on macOS and Linux: `brew install kyotu-technology/tap/kanjo` installs the prebuilt release binary, whose build provenance the tap verifies, from the Kyotu Technology tap. After `brew upgrade kanjo`, run `kanjo service install` to restart the background service on the new version.
+
 ## [0.2.0] - 2026-11-26
 
 ### Added

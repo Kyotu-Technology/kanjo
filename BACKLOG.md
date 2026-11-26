@@ -24,25 +24,15 @@ Size: S. Depends: K-032.
 Why: if the Windows session shows that the path kanjo up records still changes on winget upgrade, the unversioned archive layout alone does not fix it.
 Done when: the recorded path is mapped to a stable one in Rust as kanjo_setup does for the Homebrew prefix link, with a test, or the session has shown it is not needed and the entry is deleted.
 
-### K-006 Create the tap repository
-Size: S.
-Why: the Homebrew channel needs its own public tap repository, outside this repository (D-003).
-Done when: Kyotu-Technology/homebrew-tap is public and holds the formula generator, a README and the update workflow (which verifies each archive with gh attestation verify, runs brew style, audit, install and test, and needs no secret from this repository), Actions may write its contents, a ruleset blocks force pushes and deletion, the workflow has run dry against v0.1.0, and after v0.2.0 (K-007) a real run has published the formula.
-
-### K-007 Release v0.2.0 through a release candidate
-Size: S.
-Why: v0.1.0 lacks the path fixes, so a channel built on it breaks on the first upgrade; v0.1.0 is not an immutable release because it was published before immutable releases were switched on.
-Done when: v0.2.0-rc.1 and v0.2.0 are prepared with release-prep and published, the candidate has exercised the new archive layout end to end, and the v0.2.0 release reports itself immutable.
-
 ### K-008 First WinGet submission
-Size: S. Depends: K-007, K-032.
-Why: the first version of a WinGet package needs the Microsoft Contributor License Agreement and a new-package review, so it cannot be automated.
-Done when: a pull request made with komac for KyotuTechnology.Kanjo is open in microsoft/winget-pkgs, the zip has passed gh attestation verify and its InstallerSha256 matches SHA256SUMS. If validation rejects the unsigned zip, K-033 moves to triage.
+Size: S.
+Why: the manifests for KyotuTechnology.Kanjo 0.2.0 are submitted as microsoft/winget-pkgs pull request 490380; a new package needs the Microsoft Contributor License Agreement and a moderator's review, and the manifests have not been run through winget validate or winget install on Windows.
+Done when: the Contributor License Agreement is signed, the validation pipeline has passed and the pull request is merged. If validation rejects the unsigned zip, K-033 moves to triage.
 
-### K-009 Documentation for each live install channel
-Size: S. Depends: K-006, K-008.
-Why: the documentation describes a channel only once it exists.
-Done when: for each live channel, docs/install.md (upgrade, then kanjo service install; the order of removal), docs/release.md (the sentence that Kanjo is not published to a package manager, and an "After a release" checklist), both READMEs, CHANGELOG.md, docs/security/iso27001.md and the trust points of the threat model describe it.
+### K-009 Documentation for the WinGet channel
+Size: S. Depends: K-008.
+Why: the documentation describes a channel only once it exists, and WinGet is not live.
+Done when: docs/install.md (install, upgrade, then kanjo service install; the order of removal), docs/release.md (the channel and the per-release update in "After a release"), both READMEs, CHANGELOG.md, docs/security/iso27001.md and the trust points of the threat model describe it.
 
 ### K-029 Run the systemd user service and the sandboxed-browser sign-in for real
 Size: S.
@@ -50,9 +40,9 @@ Why: the systemd user service and the sign-in from a Snap or Flatpak browser are
 Done when: both have run in a virtual machine with a desktop and docs/status.md states the results.
 
 ### K-031 macOS session
-Size: M. Depends: K-006.
+Size: M.
 Why: the published release has not been installed by hand on macOS, and the session shows whether the mapping to the Homebrew prefix link is enough there.
-Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, a brew install from the tap has run with the recorded path noted, after v0.2.0 brew upgrade has kept that path, and docs/status.md states the results.
+Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, kanjo up after brew install kyotu-technology/tap/kanjo has run with the recorded path noted, brew upgrade to a later version has kept that path, and docs/status.md states the results.
 
 ## Proposed
 
