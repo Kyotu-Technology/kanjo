@@ -265,10 +265,10 @@ Kanjo is at version 0.1.0 and no release has been tagged yet. This is what has b
 
 | Platform | State | How it was verified |
 | --- | --- | --- |
-| Linux x86_64 | Built and tested | Test suite; manual runs in temporary directories; during development, an import of about 7 GB of real transcripts in 7 to 10 seconds; the `strace` phase of the egress test; `scripts/test-install.sh` |
+| Linux x86_64 | Built and tested | Test suite; manual runs in temporary directories; during development, an import of about 7 GB of real transcripts in under 10 seconds, with token totals cross-checked against a separate `jq` computation and the price table checked against the costs Claude Code records itself; a static musl build made and run in an Alpine container; the `strace` phase of the egress test; `scripts/test-install.sh` |
 | Linux aarch64 | Defined in the release workflow | Not yet built |
 | macOS (Intel and Apple silicon) | Defined in CI and the release workflow | Never run on hardware |
-| Windows x86_64 | Defined in CI and the release workflow | Never built or run on Windows; `install.ps1` was tested only under PowerShell 7 on Linux, in offline mode |
+| Windows x86_64 | Defined in CI and the release workflow | Type-checked by cross-compiling the workspace for `x86_64-pc-windows-gnu`; never built with MSVC or run on Windows; `install.ps1` was tested only under PowerShell 7 on Linux, in offline mode |
 
 On no platform have the background service (`kanjo up` without `--no-service`, `kanjo service install`) and `kanjo uninstall` been run for real; that code is covered by tests that never call `systemctl`, `launchctl` or `reg`. The system keyring backends were tested only through a stand-in, and the manual runs kept the key in a key file. The CI workflow has not run yet, because the repository has not been published. The release workflow (signing, SBOMs, attestations) has never been executed, the network-namespace phase of the egress test has not run yet (it needs privileges that CI has), and the repository address `https://github.com/kyotu/kanjo` used in this README and in the install scripts is where the project is expected to live.
 
