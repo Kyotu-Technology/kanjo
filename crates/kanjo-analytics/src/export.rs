@@ -46,11 +46,11 @@ fn opt_ts(v: Option<i64>) -> Cell {
 }
 
 fn iso(ms: i64, millis: bool) -> String {
-    let dt = chrono::DateTime::from_timestamp_millis(ms).unwrap_or_default();
+    let dt = kanjo_core::time::utc_datetime(ms);
     if millis {
-        dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+        dt.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     } else {
-        dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+        dt.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
     }
 }
 

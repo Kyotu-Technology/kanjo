@@ -214,6 +214,23 @@ mod tests {
         assert_eq!(n, 1);
     }
 
+    /// RUSTSEC-2026-0459 (CVE-2026-119375) is fixed in SQLite 3.54.0; the bundled SQLCipher must carry it.
+    #[test]
+    fn bundled_sqlcipher_is_past_the_wal_advisory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("a.db"), Some(DbKey::from_hex(KEY).unwrap()), None).unwrap();
+        let (version, cipher): (String, String) = store
+            .read(|c| {
+                let v = c.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
+                let cv = c.query_row("PRAGMA cipher_version", [], |r| r.get(0))?;
+                Ok((v, cv))
+            })
+            .unwrap();
+        let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
+        assert!(parts[0] > 3 || (parts[0] == 3 && parts[1] >= 54), "SQLite {version} is affected by RUSTSEC-2026-0459");
+        assert!(!cipher.is_empty(), "SQLCipher is not linked");
+    }
+
     #[test]
     fn readers_cannot_write() {
         let dir = tempfile::tempdir().unwrap();

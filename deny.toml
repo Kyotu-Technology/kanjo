@@ -34,12 +34,17 @@ allow = [
 confidence-threshold = 0.93
 unused-allowed-license = "allow"
 
-# option-ext (pulled in by directories -> dirs-sys) is MPL-2.0, a file-level copyleft.
-# It is used unmodified and its source is public on crates.io, which satisfies MPL-2.0
-# for a binary distribution. Allowed for this crate only; no other MPL code.
+# sqlcipher-src (the SQLCipher amalgamation behind rusqlite's bundled-sqlcipher feature,
+# through libsqlite3-sys) declares "MIT AND BSD-3-Clause AND blessing AND WTFPL".
+# blessing is SQLite's public-domain dedication, the most permissive terms there are.
+# WTFPL covers the bundled libtomcrypt sources (public domain or WTFPL), which are only
+# compiled for targets without a system crypto library; Kanjo builds SQLCipher with the
+# vendored OpenSSL provider (PRAGMA cipher_provider = openssl), so no WTFPL code is
+# linked. Allowed for this crate only. It goes away if the crate ships libtomcrypt
+# separately or relicenses it, or if Kanjo stops bundling SQLCipher.
 [[licenses.exceptions]]
-crate = "option-ext"
-allow = ["MPL-2.0"]
+crate = "sqlcipher-src"
+allow = ["blessing", "WTFPL"]
 
 [licenses.private]
 ignore = true

@@ -22,9 +22,8 @@ fn ctx() -> Ctx {
 }
 
 /// Local wall-clock time (UTC+1) to epoch ms.
-fn local(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
-    use chrono::TimeZone;
-    chrono::Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap().timestamp_millis() - H
+fn local(y: i16, mo: i8, d: i8, h: i8, mi: i8) -> i64 {
+    kanjo_core::time::utc_millis(jiff::civil::date(y, mo, d).at(h, mi, 0, 0)) - H
 }
 
 struct Fx {

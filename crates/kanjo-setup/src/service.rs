@@ -67,11 +67,11 @@ pub struct Target {
 impl Target {
     pub fn current() -> Option<Target> {
         let platform = Platform::current()?;
-        let base = directories::BaseDirs::new()?;
+        let base = kanjo_core::paths::UserDirs::current()?;
         let dir = match platform {
-            Platform::Linux => base.config_dir().join("systemd").join("user"),
-            Platform::MacOs => base.home_dir().join("Library").join("LaunchAgents"),
-            Platform::Windows => base.data_local_dir().join("Kyotu").join("kanjo").join("service"),
+            Platform::Linux => base.config.join("systemd").join("user"),
+            Platform::MacOs => base.home.join("Library").join("LaunchAgents"),
+            Platform::Windows => base.data_local.join("Kyotu").join("kanjo").join("service"),
         };
         Some(Target { platform, dir })
     }
