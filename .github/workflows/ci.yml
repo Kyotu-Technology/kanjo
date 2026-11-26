@@ -35,6 +35,8 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal --component rustfmt && rustup default stable
       - run: cargo fmt --all --check
+      - name: Documentation describes what exists
+        run: sh scripts/check-docs.sh
 
   clippy:
     name: Clippy
@@ -226,6 +228,9 @@ jobs:
       - name: Test install.sh
         if: runner.os != 'Windows'
         run: sh scripts/test-install.sh
+      - name: Self-test of check-docs.sh
+        if: runner.os != 'Windows'
+        run: sh scripts/check-docs.sh --self-test
       - name: Test install.ps1 under Windows PowerShell 5.1
         if: runner.os == 'Windows'
         shell: powershell

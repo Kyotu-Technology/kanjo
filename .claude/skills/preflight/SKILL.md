@@ -39,6 +39,13 @@ scripts/cargo-audit.sh
 ```sh
 shellcheck -s sh install/install.sh scripts/*.sh
 sh scripts/test-install.sh
+sh scripts/check-docs.sh --self-test
+```
+
+**Documentation** (any `*.md`, including `CLAUDE.md`, `AGENTS.md` and `BACKLOG.md`):
+
+```sh
+sh scripts/check-docs.sh
 ```
 
 **Anything that could open a connection** (server, ingest, setup, a new dependency), Linux only, after `cargo build --locked -p kanjo`:
