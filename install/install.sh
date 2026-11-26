@@ -25,7 +25,7 @@
 #   --help
 set -eu
 
-REPO_URL="https://github.com/kyotu/kanjo"
+REPO_URL="https://github.com/Kyotu-Technology/kanjo"
 # Minisign public key of the release signer (the base64 line of minisign.pub).
 # Empty until the project publishes its key; signature checks are skipped then.
 MINISIGN_PUBKEY="${KANJO_MINISIGN_PUBKEY:-}"

@@ -45,7 +45,7 @@ fn systemd_unit_snapshot() {
         unit,
         r#"[Unit]
 Description=Kanjo cost and limit monitor for Claude Code
-Documentation=https://github.com/kyotu/kanjo
+Documentation=https://github.com/Kyotu-Technology/kanjo
 
 [Service]
 Type=simple

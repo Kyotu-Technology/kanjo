@@ -47,7 +47,7 @@ sha256sum --check --ignore-missing SHA256SUMS
 Then check that `SHA256SUMS` itself was signed by this repository's release workflow, for a tag. The certificate identity pins both:
 
 ```sh
-REPO=https://github.com/kyotu/kanjo
+REPO=https://github.com/Kyotu-Technology/kanjo
 cosign verify-blob \
   --bundle SHA256SUMS.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \

@@ -54,7 +54,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$RepoUrl = 'https://github.com/kyotu/kanjo'
+$RepoUrl = 'https://github.com/Kyotu-Technology/kanjo'
 # Minisign public key of the release signer (the base64 line of minisign.pub).
 # Empty until the project publishes its key; signature checks are skipped then.
 $MinisignPubKey = if ($env:KANJO_MINISIGN_PUBKEY) { $env:KANJO_MINISIGN_PUBKEY } else { '' }

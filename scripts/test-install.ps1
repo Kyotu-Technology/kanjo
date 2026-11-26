@@ -14,7 +14,7 @@ $onWindows = [IO.Path]::DirectorySeparatorChar -eq '\'
 $sep = [IO.Path]::PathSeparator
 $version = '9.9.9'
 $name = "kanjo-$version-x86_64-pc-windows-msvc"
-$identity = "https://github.com/kyotu/kanjo/.github/workflows/release.yml@refs/tags/v$version"
+$identity = "https://github.com/Kyotu-Technology/kanjo/.github/workflows/release.yml@refs/tags/v$version"
 $issuer = 'https://token.actions.githubusercontent.com'
 if (-not $env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE = 'AMD64' }
 

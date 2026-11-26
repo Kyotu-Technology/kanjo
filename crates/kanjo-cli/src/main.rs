@@ -32,7 +32,9 @@ fn main() -> ExitCode {
     }
     std::panic::set_hook(Box::new(|info| {
         let place = info.location().map(|l| format!(" ({}:{})", l.file(), l.line())).unwrap_or_default();
-        eprintln!("Kanjo stopped because of an internal error{place}. Please report it at https://github.com/kyotu/kanjo/issues.");
+        eprintln!(
+            "Kanjo stopped because of an internal error{place}. Please report it at https://github.com/Kyotu-Technology/kanjo/issues."
+        );
     }));
     let cli = Cli::parse();
     let global = Global {
