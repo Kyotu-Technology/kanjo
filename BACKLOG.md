@@ -19,13 +19,8 @@ Size: S.
 Why: NOTICE says "Kyotu" and the README says "Kyotu Technology"; the WinGet package identifier follows from the name and is hard to change once it is merged.
 Done when: NOTICE and the documentation say "Kyotu Technology" wherever the publisher is named, identifiers and paths that contain kyotu (the LaunchAgent label, the data directory) stay as they are, and the WinGet identifier is KyotuTechnology.Kanjo.
 
-### K-068 windows-vm-test accepts a published zip and an optional local WinGet manifest
-Size: M.
-Why: scripts/windows-vm-test.sh cross-builds and packages the GNU target itself and scripts/windows-vm-test.ps1 hard-codes that zip, so neither can test a published release, and neither has a WinGet step.
-Done when: both scripts take a release zip and optionally a local WinGet manifest as input, skip the build when a zip is given, pass shellcheck, and say clearly when the Windows image has no WinGet.
-
 ### K-032 Windows session with the published release
-Size: M. Depends: K-068.
+Size: M.
 Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-005, K-069).
 Done when: scripts/windows-vm-test.sh has run with the published MSVC zip and the reworked install.ps1, a winget install from a local manifest (written with komac or by hand) has run non-elevated and elevated with the recorded path noted, and docs/status.md states the results.
 
