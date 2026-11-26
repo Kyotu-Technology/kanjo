@@ -8,7 +8,7 @@ The pull request that ships an entry deletes it, adds a line under Unreleased in
 Reasons for choices in force are in docs/decisions.md.
 Sizes: S up to half a day, M one to two days, L one to two weeks, XL a month or more.
 
-Last ID used: K-070
+Last ID used: K-072
 
 ## Now
 
@@ -16,7 +16,7 @@ Accepted work, in the order it should be done.
 
 ### K-032 Windows session with the published release
 Size: M.
-Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-069).
+Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-069). The guest script tries the elevated winget install only when the non-elevated one fails, so recording both paths takes a second run.
 Done when: scripts/windows-vm-test.sh has run with the published MSVC zip and the reworked install.ps1, a winget install from a local manifest (written with komac or by hand) has run non-elevated and elevated with the recorded path noted, and docs/status.md states the results.
 
 ### K-069 Stable recorded path on Windows if the archive layout is not enough
@@ -61,7 +61,17 @@ Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall hav
 
 ## Proposed
 
-Waiting for triage; same entry form. There are no proposed entries.
+Waiting for triage; same entry form.
+
+### K-071 Demo: connect buttons outside the first-run guide
+Size: S.
+Why: the dashboard banner shown when no statusline data arrives and the connect buttons of the Limits page open the Connect panel, which a demo server refuses; they are hidden while the demo data is fresh, and whether they appear once it goes stale has not been checked.
+Done when: it is known whether a demo server can show them, and if it can, they are hidden or explained there as the first-run guide does.
+
+### K-072 Installer tests under busybox sh
+Size: S.
+Why: docs/release.md and the threat model say the installers were run under busybox sh, but busybox sh scripts/test-install.sh fails 20 of 354 cases on the development machine (30 of 389 before the minisign removal).
+Done when: it is known whether the installer or the test harness depends on behaviour busybox lacks, and either it is fixed or the two sentences are corrected.
 
 ## Later
 

@@ -24,7 +24,7 @@
 </picture>
 <p align="center"><sub>Wszystkie liczby na zrzutach ekranu to syntetyczne dane demo z <code>kanjo demo</code>. Zrzuty pokazują wersję angielską.</sub></p>
 
-| ~18 MB | 0 | 472 | 14 | 5 | 24 |
+| ~18 MB | 0 | 479 | 14 | 5 | 24 |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | jeden plik: kolektor, API i dashboard | połączeń wychodzących, czego pilnuje w CI test zerowego ruchu wychodzącego | testów Rusta i interfejsu webowego przy każdym pull requeście i pushu do main | zadań CI na Ubuntu, macOS i Windows | targetów wydań, każdy podpisany i wydany z SBOM i provenance | wycenionych modeli; ceny nieznanego nikt nie zgaduje |
 

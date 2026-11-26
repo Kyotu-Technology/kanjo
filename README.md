@@ -24,7 +24,7 @@
 </picture>
 <p align="center"><sub>Every figure in the screenshots is synthetic demo data from <code>kanjo demo</code>.</sub></p>
 
-| ~18 MB | 0 | 472 | 14 | 5 | 24 |
+| ~18 MB | 0 | 479 | 14 | 5 | 24 |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | one binary: collector, API and dashboard | outbound connections, checked by a zero-egress test in CI | Rust and web UI tests on every pull request and push to main | CI jobs on Ubuntu, macOS and Windows | release targets, each signed and shipped with SBOM and provenance | priced models; an unknown one is never guessed |
 

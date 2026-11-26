@@ -18,7 +18,7 @@ Consequences: the installers check the archive against `SHA256SUMS` and, when co
 
 Context: the release workflow once generated a Homebrew formula and WinGet manifests and attested them as release assets.
 Decision: commit f195feb removed the generators, their packing script, their tests, the CI step and the tap workflow template, so a release needs nothing beyond the GitHub release and the two installers. A release job does not write to a tap or to `microsoft/winget-pkgs`, because that would put a credential able to write to another repository into the release path.
-Consequences: a package-manager channel is maintained outside this repository, in its own tap or through submissions to `microsoft/winget-pkgs`, and the release workflow stays unchanged by it.
+Consequences: a package-manager channel is maintained outside this repository, in its own tap or through submissions to `microsoft/winget-pkgs`, and the release workflow stays unchanged by it. What the binary needs to know about a package manager is ordinary code: `kanjo_setup` maps a Homebrew Cellar path to the prefix link.
 
 ## D-004 TypeScript stays on 6 (2026-11-26)
 
