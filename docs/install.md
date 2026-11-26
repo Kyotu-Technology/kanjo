@@ -32,7 +32,7 @@ The parameters are `-Version`, `-Dir`, `-Archive`, `-Sums`, `-NoVerify`, `-SkipS
 
 The scripts contact GitHub to download the release. Kanjo itself never does; with `--archive` (`-Archive`) the scripts work offline too. How to verify a download by hand is described in [release.md](release.md#verifying-a-download).
 
-The binaries are built for Linux x86_64 and arm64 (static musl), macOS 11 or newer on Apple silicon and Intel, and Windows x86_64. Windows on ARM64 runs the x86_64 build under emulation.
+The binaries are built for Linux x86_64 and arm64 (static musl), macOS 11 or newer on Apple silicon and Intel, and Windows x86_64. Windows on ARM64 runs the x86_64 build under emulation. The macOS binaries are not notarized by Apple and the Windows binary is not Authenticode-signed; [release.md](release.md#targets-and-toolchains) says what that means when you first start them.
 
 ## From source
 

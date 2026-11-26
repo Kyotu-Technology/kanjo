@@ -1,10 +1,10 @@
-# Status, limitations and roadmap
+# Status and limitations
 
-This page says which platforms have been checked and how, what a user may run into, and what is planned. How far the tree covers the functional specification, feature by feature, is in [feature-status.md](feature-status.md).
+This page says which platforms have been checked and how, and what a user may run into. How far the tree covers the functional specification, feature by feature, is in [feature-status.md](feature-status.md).
 
 Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
-Kanjo is at version 0.1.0. This is what has been checked, and how:
+This is what has been checked, and how:
 
 | Platform | State | How it was verified |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ The background service and `kanjo uninstall` have been run for real only on Wind
 
 These are the limitations a user may run into:
 
-- Kanjo is for one person on one machine. There is no team view yet.
+- Kanjo is for one person on one machine. There is no team view.
 - History reaches only as far back as the transcripts on disk. Claude Code deletes old transcripts (after 30 days unless `cleanupPeriodDays` says otherwise), so install Kanjo early; from then on it keeps its own copy.
 - The transcript format is undocumented. After a Claude Code update, records Kanjo does not recognise are set aside rather than guessed at; `kanjo doctor` and the System page list them.
 - Usage beyond the plan ("extra usage") is not tracked; only the spend limit that gateways report is shown.
@@ -30,14 +30,5 @@ These are the limitations a user may run into:
 - Kanjo writes UTF-8. Windows PowerShell 5.1 decodes the output of a program it captures or pipes with the console code page, so Polish letters in captured output come out wrong there unless that code page is UTF-8 (`chcp 65001`).
 - Browsers installed as Snap or Flatpak packages may be unable to read the sign-in page in the data directory (or, for the demo, in the temporary directory). Then `kanjo open` and `kanjo up` print the address after 20 seconds. This has not been tested with a real sandboxed browser.
 - In `kanjo demo`, the first-run guide still offers a Connect step, which the demo server refuses.
-- There is no command to rotate the access token yet.
+- There is no command to rotate the access token (see the [threat model](security/threat-model.md)).
 - The minisign key for releases has not been published, so the install scripts verify signatures only with cosign.
-
-## Planned
-
-From the specification, and not built yet:
-
-- A team server in the LAN: the same binary in server mode, collecting aggregates from each machine and OpenTelemetry (OTLP) data from Claude Code, with SSO and roles, team budgets and chargeback per client. Prompt text would still never leave a developer's machine.
-- A terminal UI for use over SSH.
-- A Docker image for the team server.
-- A desktop edition as a Tauri shell around the same server and web UI. [docs/desktop.md](desktop.md) describes the seams that already exist for it.

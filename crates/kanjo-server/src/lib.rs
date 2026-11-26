@@ -1,8 +1,8 @@
 //! kanjo-server: the HTTP API, the embedded web UI and the runtime that drives
-//! ingest and alert loops. The CLI and a future desktop shell both start it
-//! through this interface: [`run`] for a blocking process, [`start`] or
-//! [`serve`] inside an existing tokio runtime, and [`router`] when a shell
-//! wants to wrap the router in its own layers.
+//! ingest and alert loops. The CLI starts it through this interface. It offers
+//! [`run`] for a blocking process, [`start`] or [`serve`] inside an existing
+//! tokio runtime, and [`router`] when an embedding process wants to wrap the
+//! router in its own layers.
 
 mod assets;
 mod error;
@@ -68,8 +68,8 @@ pub fn run_with(opts: ServeOptions, ready: impl FnOnce(&Server)) -> Result<()> {
     result
 }
 
-/// Serves until `shutdown` resolves, inside the caller's tokio runtime. A desktop
-/// shell that needs the bound address (port 0) uses [`start`] instead.
+/// Serves until `shutdown` resolves, inside the caller's tokio runtime. A host
+/// that needs the bound address (port 0) uses [`start`] instead.
 pub async fn serve(opts: ServeOptions, shutdown: impl Future<Output = ()> + Send) -> Result<()> {
     let server = start(opts).await?;
     tokio::select! {

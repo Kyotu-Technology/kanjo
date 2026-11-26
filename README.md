@@ -24,7 +24,7 @@
 </picture>
 <p align="center"><sub>Every figure in the screenshots is synthetic demo data from <code>kanjo demo</code>.</sub></p>
 
-| ~18 MB | 0 | 470 | 14 | 5 | 24 |
+| ~18 MB | 0 | 472 | 14 | 5 | 24 |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | one binary: collector, API and dashboard | outbound connections, checked by a zero-egress test in CI | Rust and web UI tests on every pull request and push to main | CI jobs on Ubuntu, macOS and Windows | release targets, each signed and shipped with SBOM and provenance | priced models; an unknown one is never guessed |
 
@@ -99,11 +99,11 @@ Details are in [docs/privacy.md](docs/privacy.md), the [threat model](docs/secur
 | [Privacy and security](docs/privacy.md) | What is stored, encryption, access token, audit log, retention |
 | [Command reference](docs/cli.md) and [configuration](docs/configuration.md) | Every command, `config.toml`, data directories, prices and currency |
 | [HTTP API](docs/api.md) and [architecture](docs/architecture.md) | The local JSON API and the design of the eight crates |
-| [Status](docs/status.md), [feature status](docs/feature-status.md) and [releases](docs/release.md) | What was tested where, known limitations, the roadmap, verifying a download |
+| [Status](docs/status.md), [feature status](docs/feature-status.md) and [releases](docs/release.md) | What was tested where, known limitations, verifying a download |
 
 ## Status
 
-Kanjo is at version 0.1.0 and works for one person on one machine. CI tests it on Ubuntu 24.04, macOS 15 and Windows Server 2025, the Linux one-line install has been run against the published release, and the whole path from install to uninstall has been run on Windows 11 in a virtual machine, with the installer as it was before its rework for piped use. The published release has not yet been installed by hand on macOS or Windows, and `kanjo up` and the background service have not yet been run on a Mac by hand. History reaches only as far back as the transcripts still on disk, so install Kanjo early. A team server for the local network, a terminal UI and a desktop edition are planned. The full list is in [docs/status.md](docs/status.md).
+Kanjo works for one person on one machine. CI tests it on Ubuntu 24.04, macOS 15 and Windows Server 2025, the Linux one-line install has been run against the published release, and the whole path from install to uninstall has been run on Windows 11 in a virtual machine, with the installer as it was before its rework for piped use. The published release has not been installed by hand on macOS or Windows, and `kanjo up` and the background service have not been run on a Mac by hand. History reaches only as far back as the transcripts still on disk, so install Kanjo early. Platforms checked and known limitations are in [docs/status.md](docs/status.md).
 
 ## Built by Kyotu Technology
 

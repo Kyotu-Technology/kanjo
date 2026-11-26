@@ -47,7 +47,7 @@ If you already use a status line of your own, Kanjo goes in front of it in chain
 
 ## Can I get the numbers out?
 
-The command line prints the same reports as the dashboard (`kanjo daily`, `weekly`, `monthly`, `session`, `blocks`, `status`) as tables or, with `--json`, as JSON; all of them except `status` also print CSV with `--csv`. The JSON of the period reports follows the shapes of ccusage's `--json` output (modelled on its documentation, not yet tested against ccusage itself). `kanjo export` writes the usage, breakdown, sessions, blocks, turns, alerts and audit views to CSV or JSON, and the same views are available from the local JSON API under `/api/v1`, described in [docs/api.md](api.md).
+The command line prints the same reports as the dashboard (`kanjo daily`, `weekly`, `monthly`, `session`, `blocks`, `status`) as tables or, with `--json`, as JSON; all of them except `status` also print CSV with `--csv`. The JSON of the period reports follows the shapes of ccusage's `--json` output (modelled on its documentation, not tested against ccusage itself). `kanjo export` writes the usage, breakdown, sessions, blocks, turns, alerts and audit views to CSV or JSON, and the same views are available from the local JSON API under `/api/v1`, described in [docs/api.md](api.md).
 
 ## How far each number can be trusted
 
