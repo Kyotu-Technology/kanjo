@@ -102,6 +102,9 @@ run() {
 		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$INSTALLER" --dir "$dir" "$@" 2>&1)
 	code=$?
 	set -e
+	# The per-case settings are given as assignments in front of the call. bash 3.2
+	# in POSIX mode (the /bin/sh of macOS) keeps them after the function returns.
+	unset COSIGN_EXIT COSIGN_VERSION MINISIGN_EXIT PUBKEY EXTRA_PATH
 }
 fail() {
 	failures=$((failures + 1))
