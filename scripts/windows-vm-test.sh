@@ -16,6 +16,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-winvm.XXXXXX")
 name="kanjo-winvm-$$"
+# shellcheck disable=SC2329
 cleanup() {
 	docker rm -f "$name" >/dev/null 2>&1 || true
 	docker run --rm -v "$work":/w alpine:3 rm -rf /w/storage /w/shared >/dev/null 2>&1 || true
@@ -65,6 +66,9 @@ fail=0
 for expect in "SHA-256 checksum: verified" "exe exists: True" "health: {\"status\":\"ok\"" "ui: 200" "encrypted=True" "watcher=True" "service=True" "confidence=official" "kanjo processes after uninstall: 0"; do
 	grep -qF "$expect" "$result" || { echo "windows-vm-test: MISSING: $expect" >&2; fail=1; }
 done
-grep -qE "watcher: requests before=([0-9]+) after=" "$result" && ! grep -qE "watcher: requests before=([0-9]+) after=\1 " "$result" || { echo "windows-vm-test: the watcher did not pick up the appended request" >&2; fail=1; }
+if ! grep -qE "watcher: requests before=([0-9]+) after=" "$result" || grep -qE "watcher: requests before=([0-9]+) after=\1 " "$result"; then
+	echo "windows-vm-test: the watcher did not pick up the appended request" >&2
+	fail=1
+fi
 [ "$fail" -eq 0 ] && echo "windows-vm-test: passed"
 exit "$fail"

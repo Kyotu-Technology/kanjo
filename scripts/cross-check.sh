@@ -32,6 +32,7 @@ for what in "$@"; do
 	windows)
 		# The watcher test is expected to fail under Wine, which does not deliver
 		# change notifications for subdirectories; everything else must pass.
+		# shellcheck disable=SC2016
 		run -e WINEDEBUG=-all -e KANJO_NO_KEYRING=1 -e TS_RS_EXPORT_DIR=/tmp/bindings \
 			-e CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine rust:1 sh -ec '
 			apt-get update -qq >/dev/null
@@ -48,6 +49,7 @@ for what in "$@"; do
 				-- --skip watcher_picks_up_appends'
 		;;
 	macos)
+		# shellcheck disable=SC2016
 		run ghcr.io/rust-cross/cargo-zigbuild:latest sh -ec '
 			rustup update stable >/dev/null 2>&1
 			rustup default stable >/dev/null 2>&1
