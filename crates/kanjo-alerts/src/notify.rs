@@ -27,17 +27,17 @@ pub fn deliver(alert: &Alert, settings: &AlertSettings) {
 /// background service. The bell rings in that terminal, not in Claude Code's.
 pub fn bell_available() -> bool {
     use std::io::IsTerminal;
-    if std::io::stderr().is_terminal() {
-        return true;
-    }
-    #[cfg(unix)]
-    {
-        std::fs::OpenOptions::new().write(true).open("/dev/tty").is_ok()
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    std::io::stderr().is_terminal() || controlling_terminal()
+}
+
+#[cfg(unix)]
+fn controlling_terminal() -> bool {
+    std::fs::OpenOptions::new().write(true).open("/dev/tty").is_ok()
+}
+
+#[cfg(not(unix))]
+fn controlling_terminal() -> bool {
+    false
 }
 
 fn bell() {

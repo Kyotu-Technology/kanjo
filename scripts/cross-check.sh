@@ -3,7 +3,7 @@
 # containers allow, so platform breakage is found before CI or a release:
 #
 #   musl     static Linux binary built and run in Alpine
-#   windows  x86_64-pc-windows-gnu build, the binary and the test suite run under Wine
+#   windows  x86_64-pc-windows-gnu lint and build, the binary and the test suite run under Wine
 #   macos    aarch64 and x86_64 Apple binaries compiled and linked with cargo-zigbuild
 #            (they cannot be executed here)
 #
@@ -37,6 +37,8 @@ for what in "$@"; do
 			apt-get update -qq >/dev/null
 			apt-get install -y -qq mingw-w64 perl make wine wine64 >/dev/null
 			rustup target add x86_64-pc-windows-gnu >/dev/null
+			rustup component add clippy >/dev/null 2>&1
+			cargo clippy --locked --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 			cargo build --release --locked -p kanjo --target x86_64-pc-windows-gnu
 			exe=/tmp/target/x86_64-pc-windows-gnu/release/kanjo.exe
 			wine "$exe" --version
