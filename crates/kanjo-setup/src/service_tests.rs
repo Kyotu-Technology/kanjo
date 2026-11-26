@@ -65,6 +65,7 @@ WantedBy=default.target
 }
 
 #[test]
+#[cfg(not(windows))]
 fn launchd_plist_snapshot() {
     let plist = launchd_plist(
         Path::new("/Applications/Kanjo & Co/kanjo"),
