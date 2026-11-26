@@ -19,6 +19,29 @@ use std::time::{Duration, Instant};
 
 pub const DEMO_PORT: u16 = 4748;
 
+/// Ends the server the background service started. systemd and launchd stop
+/// their process when the service is removed; the Windows logon entry has no
+/// manager behind it, so there the running server is ended by the process id
+/// it announced. The database is crash-safe, so nothing is lost.
+fn stop_service_server(paths: &Paths) {
+    #[cfg(windows)]
+    if let Some(rec) = server_file::live(paths) {
+        use std::process::{Command, Stdio};
+        let _ = Command::new("taskkill")
+            .args(["/PID", &rec.pid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while server_file::live(paths).is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = paths;
+}
+
 fn service_running() -> bool {
     kanjo_setup::service::is_installed() && kanjo_setup::service::status() == ServiceState::Running
 }
@@ -566,6 +589,7 @@ pub fn service(app: &mut App, action: &ServiceAction) -> CliResult<()> {
                 return Ok(());
             }
             kanjo_setup::service::uninstall()?;
+            stop_service_server(&app.paths);
             if app.paths.db().exists() && app.store().is_ok() {
                 app.audit("service.uninstall", "service", json!({ "via": "cli" }));
             }
@@ -659,6 +683,7 @@ pub fn uninstall(app: &mut App, purge_data: bool, yes: bool, no_service: bool) -
     }
     if !no_service && kanjo_setup::service::is_installed() {
         kanjo_setup::service::uninstall()?;
+        stop_service_server(&app.paths);
         out(lang.t("Stopped and removed the background service.", "Zatrzymano i usunięto usługę w tle."));
     }
     if purge_data {
