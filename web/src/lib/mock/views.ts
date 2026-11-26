@@ -8,7 +8,11 @@ import type {
   BreakdownRow,
   BurnRate,
   Budget,
+  CacheBreaker,
   CacheInsights,
+  CacheMiss,
+  ConfigChange,
+  CacheStatus,
   Comparison,
   Confidence,
   DataStatus,
@@ -20,6 +24,7 @@ import type {
   LimitPoint,
   Limits,
   LimitsDetail,
+  ModelMixSuggestion,
   ModelSlice,
   Overview,
   PeriodSummary,
@@ -28,8 +33,10 @@ import type {
   Query,
   SearchResult,
   SessionDetail,
+  SessionEvent,
   SessionList,
   SessionSummary,
+  SpendLimit,
   SystemInfo,
   Transcript,
   Turn,
@@ -38,7 +45,8 @@ import type {
   UsageReport,
   UsdPerPctPoint,
 } from '../api/contract';
-import { addRecord, emptyUsage, startOfDay, sumUsage, totalTokens, UNPRICED_MODEL, type Dataset, type MockRecord, type MockSession } from './data';
+import { addRecord, costOf, emptyUsage, startOfDay, sumUsage, totalTokens, UNPRICED_MODEL, type Dataset, type MockRecord, type MockSession } from './data';
+import { doctorChecks, quarantineRows, verifyChain } from './system';
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -201,7 +209,7 @@ function rowKey(ds: Dataset, r: MockRecord, by: Dimension, sessions: Map<string,
       return [[r.session, ds.settings.privacy.session_titles && s ? s.title : r.session.slice(0, 12)]];
     }
     case 'tool':
-      return r.tools.map((t) => [t, t]);
+      return [...new Set(r.tools)].map((t) => [t, t]);
     case 'skill':
       return r.skill ? [[r.skill, r.skill]] : [];
     case 'mcp':
@@ -215,24 +223,9 @@ export function breakdownRows(ds: Dataset, records: MockRecord[], by: Dimension)
   const total = sumUsage(records).cost_usd;
   for (const r of records) {
     const keys = rowKey(ds, r, by, sessions);
-    const weight = 1 / Math.max(1, keys.length);
     for (const [key, label] of keys) {
       const row = rows.get(key) ?? { key, label, usage: emptyUsage(), share: 0 };
-      const part: MockRecord =
-        weight === 1
-          ? r
-          : {
-              ...r,
-              cost: r.cost === null ? null : r.cost * weight,
-              tokens: {
-                input: Math.round(r.tokens.input * weight),
-                output: Math.round(r.tokens.output * weight),
-                cache_read: Math.round(r.tokens.cache_read * weight),
-                cache_write_5m: Math.round(r.tokens.cache_write_5m * weight),
-                cache_write_1h: Math.round(r.tokens.cache_write_1h * weight),
-              },
-            };
-      addRecord(row.usage, part);
+      addRecord(row.usage, r);
       rows.set(key, row);
     }
   }
@@ -270,8 +263,8 @@ export function computeBlocks(ds: Dataset, records: MockRecord[] = ds.records): 
       start: b.start,
       end: b.end,
       is_active: isActive,
-      anchored: isActive && ds.hooks.statusline_installed,
-      peak_pct: ds.hooks.statusline_installed ? Math.min(100, (usage.cost_usd / ds.fiveHourCeilingUsd) * 100) : null,
+      anchored: isAnchored(ds, b.start, b.end),
+      peak_pct: isAnchored(ds, b.start, b.end) ? Math.min(100, (usage.cost_usd / ds.fiveHourCeilingUsd) * 100) : null,
       usage,
       by_model: breakdownRows(ds, b.recs, 'model'),
       by_project: breakdownRows(ds, b.recs, 'project'),
@@ -298,10 +291,45 @@ function weeklyWindow(ds: Dataset, ts: number): { start: number; end: number } {
   return { start: end - 7 * DAY, end };
 }
 
+/** Past weeks bought a little less per percentage point; the current week is the calibrated one. */
+function weekFactor(ds: Dataset, end: number): number {
+  const k = Math.round((weeklyWindow(ds, ds.clock()).end - end) / (7 * DAY));
+  if (k <= 0) return 1;
+  const usd = between(ds.records, end - 7 * DAY, end).reduce((a, r) => a + (r.cost ?? 0), 0);
+  return Math.max(0.5, usd / (ds.weeklyCeilingUsd * (0.8 + 0.13 * Math.sin(k * 2.1))));
+}
+
+/** Windows with a statusline reading are anchored to its reset; headless and weekend runs had none. */
+function isAnchored(ds: Dataset, start: number, end: number): boolean {
+  if (ds.statuslineSince === null || end <= ds.statuslineSince) return false;
+  const d = new Date(start);
+  return start + 5 * HOUR > ds.clock() || (d.getDay() !== 0 && d.getDay() !== 6 && d.getHours() >= 9);
+}
+
 function weeklyPctAt(ds: Dataset, ts: number): { pct: number; usd: number; end: number } {
   const w = weeklyWindow(ds, ts);
   const usd = between(ds.records, w.start, ts + 1).reduce((a, r) => a + (r.cost ?? 0), 0);
-  return { pct: Math.min(100, (usd / ds.weeklyCeilingUsd) * 100), usd, end: w.end };
+  return { pct: Math.min(100, (usd / (ds.weeklyCeilingUsd * weekFactor(ds, w.end))) * 100), usd, end: w.end };
+}
+
+function spendLimit(ds: Dataset): SpendLimit | null {
+  if (ds.spendLimitUsd === null) return null;
+  const now = ds.clock();
+  const start = bucketStart(now, 'month', 0);
+  const d = new Date(start);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+  const used = ds.spendLimitUsd * 0.71;
+  const ex = now + (ds.spendLimitUsd - used) / (used / Math.max(HOUR, now - start));
+  return {
+    used_pct: (used / ds.spendLimitUsd) * 100,
+    resets_at: end,
+    observed_at: ds.hooks.last_statusline_at ?? now,
+    used_usd: used,
+    limit_usd: ds.spendLimitUsd,
+    period: 'month',
+    exhausts_at: ex < end ? ex : null,
+    will_exhaust: ex < end,
+  };
 }
 
 export function limits(ds: Dataset): Limits {
@@ -364,7 +392,7 @@ export function limits(ds: Dataset): Limits {
       daily_budget_pct: Math.max(0, (100 - wk.pct) / daysLeft),
       confidence: 'official',
     },
-    spend: null,
+    spend: spendLimit(ds),
     estimate: null,
   };
 }
@@ -390,7 +418,8 @@ export function limitsDetail(ds: Dataset): LimitsDetail {
   for (let k = 7; k >= 0; k--) {
     const start = current.start - k * 7 * DAY;
     const usd = between(ds.records, start, start + 7 * DAY).reduce((a, r) => a + (r.cost ?? 0), 0);
-    const pct = Math.min(100, (usd / ds.weeklyCeilingUsd) * 100);
+    const read = ds.statuslineSince !== null && start + 7 * DAY > ds.statuslineSince;
+    const pct = read ? Math.min(100, (usd / (ds.weeklyCeilingUsd * weekFactor(ds, start + 7 * DAY))) * 100) : 0;
     usd_per_pct_weekly.push({ week_start: start, usd, pct, usd_per_pct: pct > 0 ? usd / pct : null });
   }
   return { current: limits(ds), history_5h, history_7d, usd_per_pct_weekly, blocks: computeBlocks(ds).slice(-40).reverse() };
@@ -522,7 +551,7 @@ function turn(ds: Dataset, r: MockRecord): Turn {
     cost_usd: r.cost,
     agent_type: r.agent,
     tools: r.tools,
-    stop_reason: 'tool_use',
+    stop_reason: r.agent !== null ? 'end_turn' : ['tool_use', 'tool_use', 'tool_use', 'end_turn', 'tool_use', 'end_turn', 'tool_use', 'max_tokens'][r.id.charCodeAt(r.id.length - 1) % 8],
   };
 }
 
@@ -534,6 +563,71 @@ export function turns(ds: Dataset, q: Q): Turn[] {
     .map((r) => turn(ds, r));
 }
 
+function seeded(id: string): () => number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  let a = h >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 5-minute buckets for sessions up to 2 hours, hourly up to 2 days, daily beyond (as the server does). */
+function sessionTimeline(recs: MockRecord[], from: number, to: number): UsageBucket[] {
+  const span = to - from;
+  if (span > 2 * DAY) return buckets(recs, from, to, 'day', 0);
+  if (span > 2 * HOUR) return buckets(recs, from, to, 'hour', 0);
+  const step = 5 * 60_000;
+  const first = bucketStart(from, 'hour', 0) + Math.floor((from - bucketStart(from, 'hour', 0)) / step) * step;
+  const out: UsageBucket[] = [];
+  for (let s = first; s < to; s += step) {
+    const list = recs.filter((r) => r.ts >= s && r.ts < s + step);
+    const d = new Date(s);
+    const label = `${bucketLabel(s, 'day')} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    out.push({ start: s, label, usage: sumUsage(list), by_model: slices(list) });
+  }
+  return out;
+}
+
+const MISS_CAUSES = ['ttl_expired_5m', 'ttl_expired_5m', 'ttl_expired_5m', 'tools_changed', 'tools_changed', 'system_changed', 'claude_md_changed', 'model_changed'];
+
+function sessionMisses(ds: Dataset, s: MockSession, recs: MockRecord[]): CacheMiss[] {
+  const rand = seeded(`miss-${s.id}`);
+  const main = recs.filter((r) => r.agent === null && r.ts > s.started);
+  const n = main.length < 4 ? 0 : Math.floor(rand() * 4);
+  const picked = new Set<number>();
+  for (let i = 0; i < n; i++) picked.add(1 + Math.floor(rand() * (main.length - 1)));
+  const project = projectLabel(ds, s.project);
+  return [...picked]
+    .sort((a, b) => a - b)
+    .map((i) => {
+      const ts = main[i].ts;
+      const cause = MISS_CAUSES[Math.floor(rand() * MISS_CAUSES.length)];
+      const ago = (m: number) => ts - Math.round(m * 60_000);
+      const base: CacheMiss = { session_id: s.id, project, ts, causes: [cause], tools_added: null, tools_removed: null, system_char_delta: null, correlated_changes: [] };
+      if (cause === 'tools_changed') {
+        const added = 1 + Math.floor(rand() * 6);
+        return { ...base, tools_added: added, tools_removed: rand() < 0.4 ? 1 : 0, correlated_changes: [{ ts: ago(2 + rand() * 6), kind: 'plugins', target: rand() < 0.5 ? 'issue-tracker' : 'docs-search' }] };
+      }
+      if (cause === 'system_changed') return { ...base, system_char_delta: Math.round(400 + rand() * 2600), correlated_changes: [{ ts: ago(1 + rand() * 4), kind: 'settings', target: '.claude/settings.json' }] };
+      if (cause === 'claude_md_changed')
+        return { ...base, causes: ['claude_md_changed', 'system_changed'], system_char_delta: Math.round(120 + rand() * 900), correlated_changes: [{ ts: ago(1 + rand() * 8), kind: 'claude_md', target: 'CLAUDE.md' }] };
+      return base;
+    });
+}
+
+function sessionEvents(s: MockSession, active: boolean): SessionEvent[] {
+  const rand = seeded(`events-${s.id}`);
+  const events: SessionEvent[] = [{ ts: s.started, event: 'SessionStart', source: rand() < 0.75 ? 'startup' : 'resume' }];
+  for (let ts = s.started + 18 * 60_000; ts < s.last - 4 * 60_000; ts += Math.round((14 + rand() * 30) * 60_000)) events.push({ ts, event: 'Stop', source: null });
+  if (!active) events.push({ ts: s.last, event: 'SessionEnd', source: rand() < 0.7 ? 'prompt_input_exit' : 'clear' });
+  return events;
+}
+
 export function sessionDetail(ds: Dataset, id: string): SessionDetail | undefined {
   const s = ds.sessions.find((x) => x.id === id);
   if (!s) return undefined;
@@ -542,46 +636,81 @@ export function sessionDetail(ds: Dataset, id: string): SessionDetail | undefine
   const now = ds.clock();
   const lastHour = recs.filter((r) => r.ts >= now - HOUR);
   const u = sumUsage(lastHour);
+  const rand = seeded(`status-${s.id}`);
+  const misses = sessionMisses(ds, s, recs);
+  const causes: Record<string, number> = {};
+  for (const m of misses) for (const c of m.causes.slice(0, 1)) causes[c] = (causes[c] ?? 0) + 1;
+  const t = summary.usage.tokens;
+  const ctxTokens = Math.round(s.ctxPct * 2000);
+  const hasStatus = ds.hooks.statusline_installed && (summary.is_active || s.last >= now - 21 * DAY);
+  const warm = now - s.last < 5 * 60_000;
+  const cache: CacheStatus = {
+    warm,
+    ttl: '5m',
+    expires_at: s.last + 5 * 60_000,
+    requests: summary.usage.requests,
+    misses: misses.length,
+    expected_rebuilds: Math.max(0, Math.round((s.last - s.started) / (45 * 60_000))),
+    hit_ratio: summary.cache_hit_ratio,
+    write_tokens: t.cache_write_5m + t.cache_write_1h,
+    miss_recache_tokens: misses.length * Math.round(ctxTokens * 0.8),
+    last_miss_at: misses.length ? misses[misses.length - 1].ts : null,
+    miss_causes: causes,
+    recache_tokens_if_cold: ctxTokens,
+  };
   return {
     summary,
-    timeline: buckets(recs, s.started, s.last + 1, 'hour', 0),
+    timeline: sessionTimeline(recs, s.started, s.last + 1),
     by_model: breakdownRows(ds, recs, 'model'),
     by_agent: breakdownRows(ds, recs, 'agent'),
     tools: breakdownRows(ds, recs, 'tool'),
     top_turns: [...recs].sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0)).slice(0, 10).map((r) => turn(ds, r)),
-    status: summary.is_active
+    status: hasStatus
       ? {
-          ts: s.last,
+          ts: summary.is_active ? s.last : s.last - 30_000,
           model: summary.main_model,
-          cost_usd: summary.usage.cost_usd * 1.03,
+          cost_usd: summary.usage.cost_usd * (1.01 + rand() * 0.06) + summary.usage.unpriced_requests * 0.04,
           duration_ms: s.last - s.started,
-          api_duration_ms: Math.round((s.last - s.started) * 0.42),
-          lines_added: 412,
-          lines_removed: 128,
+          api_duration_ms: Math.round((s.last - s.started) * (0.35 + rand() * 0.2)),
+          lines_added: Math.round(40 + rand() * 600),
+          lines_removed: Math.round(10 + rand() * 220),
           ctx_used_pct: s.ctxPct,
           ctx_size: 200_000,
           exceeds_200k: false,
-          cache: null,
+          cache,
         }
       : null,
-    cache_misses: [],
-    events: [
-      { ts: s.started, event: 'SessionStart', source: 'startup' },
-      ...(summary.is_active ? [] : [{ ts: s.last, event: 'SessionEnd', source: 'exit' }]),
-    ],
+    cache_misses: misses,
+    events: sessionEvents(s, summary.is_active),
     burn: { usd_per_hour: u.cost_usd, tokens_per_min: totalTokens(u.tokens) / 60, window_minutes: 60, active: lastHour.length > 0 },
   };
 }
 
+const TRANSCRIPT_FILES = ['src/billing/refunds.ts', 'src/webhooks/sender.ts', 'src/auth/middleware.ts', 'tests/checkout.spec.ts', 'docs/reference/orders.md'];
+
 export function transcript(ds: Dataset, id: string): Transcript {
   const s = ds.sessions.find((x) => x.id === id);
+  const rand = seeded(`transcript-${id}`);
+  const start = s?.started ?? ds.clock();
+  const file = TRANSCRIPT_FILES[Math.floor(rand() * TRANSCRIPT_FILES.length)];
+  const task = (s?.title ?? 'Tidy up error messages').toLowerCase();
+  const model = 'claude-opus-4-5';
+  const at = (m: number) => start + Math.round(m * 60_000);
   return {
     session_id: id,
     truncated: false,
     messages: [
-      { ts: s?.started ?? null, role: 'user', kind: 'text', text: 'Sample conversation text. The real viewer reads it from the session file on demand.', model: null, tool: null },
-      { ts: s ? s.started + 30_000 : null, role: 'assistant', kind: 'text', text: 'Sample reply from the assistant.', model: 'claude-opus-4-5', tool: null },
-      { ts: s ? s.started + 60_000 : null, role: 'assistant', kind: 'tool_use', text: 'Read src/example.ts', model: 'claude-opus-4-5', tool: 'Read' },
+      { ts: at(0), role: 'user', kind: 'text', text: `Sample conversation (invented). Please ${task}. Start with ${file} and keep the public interface unchanged.`, model: null, tool: null },
+      { ts: at(0.3), role: 'assistant', kind: 'thinking', text: `The request is to ${task}. I should read ${file} first and check which tests cover it before changing anything.`, model, tool: null },
+      { ts: at(0.5), role: 'assistant', kind: 'tool_use', text: `Read ${file}`, model, tool: 'Read' },
+      { ts: at(0.6), role: 'user', kind: 'tool_result', text: `1  export function apply(input: Order): Result {\n2    const total = sum(input.lines);\n3    return round(total, 2);\n4  }`, model: null, tool: 'Read' },
+      { ts: at(1.4), role: 'assistant', kind: 'text', text: 'The rounding happens before the refund lines are subtracted, so a refund can be off by one cent. I will move the rounding to the end and add a test for it.', model, tool: null },
+      { ts: at(2.1), role: 'assistant', kind: 'tool_use', text: `Edit ${file}`, model, tool: 'Edit' },
+      { ts: at(2.2), role: 'user', kind: 'tool_result', text: 'The file was updated.', model: null, tool: 'Edit' },
+      { ts: at(3), role: 'assistant', kind: 'tool_use', text: 'npm test -- refunds', model, tool: 'Bash' },
+      { ts: at(3.8), role: 'user', kind: 'tool_result', text: 'Tests: 14 passed, 14 total', model: null, tool: 'Bash' },
+      { ts: at(4.2), role: 'assistant', kind: 'text', text: 'Done. The rounding now happens once, after refunds, and a new test covers the one-cent case.', model, tool: null },
+      { ts: at(5), role: 'user', kind: 'text', text: 'Thanks. Please also update the changelog.', model: null, tool: null },
     ],
   };
 }
@@ -706,7 +835,7 @@ export function planFit(ds: Dataset): PlanFit {
   const near = blocks.filter((b) => (b.peak_pct ?? 0) >= 90).length;
   const peaks = blocks.map((b) => b.peak_pct ?? 0);
   let action: PlanFit['action'] = 'keep';
-  let reason = 'good_fit';
+  let reason = 'within_plan';
   let target: PlanFit['target'] = null;
   if (kind === 'unknown') {
     action = 'unknown';
@@ -740,6 +869,94 @@ export function planFit(ds: Dataset): PlanFit {
 
 // ----------------------------------------------------------------- insights
 
+function configChanges(ds: Dataset): ConfigChange[] {
+  const now = ds.clock();
+  const quill = [...ds.sessions].reverse().find((s) => s.project === 3 && s.last < now - 2 * DAY);
+  return [
+    { ts: (quill?.started ?? now - 3 * DAY) - 25 * 60_000, kind: 'claude_md', target: 'quill-api/CLAUDE.md' },
+    { ts: now - 6 * DAY - 3 * HOUR, kind: 'plugins', target: 'enabledPlugins' },
+    { ts: now - 12 * DAY - 5 * HOUR, kind: 'tools', target: 'docs-search' },
+  ];
+}
+
+function cacheBreakers(ds: Dataset): CacheBreaker[] {
+  const [md, plugins, tools] = configChanges(ds);
+  return [
+    { change: md, misses_after: 9, sessions_affected: 3 },
+    { change: plugins, misses_after: 5, sessions_affected: 2 },
+    { change: tools, misses_after: 3, sessions_affected: 1 },
+  ];
+}
+
+const RECENT_MISS_CAUSES = [['ttl_expired_5m'], ['tools_changed'], ['ttl_expired_5m'], ['model_changed'], ['ttl_expired_5m'], ['tools_changed', 'system_prompt_changed']];
+
+function cacheMisses(ds: Dataset): CacheMiss[] {
+  const now = ds.clock();
+  const [md] = configChanges(ds);
+  const quill = [...ds.sessions].reverse().find((s) => s.project === 3 && s.last < now - 2 * DAY);
+  const recent = ds.sessions.filter((s) => s.last < now - 20 * 60_000 && s.last - s.started > 40 * 60_000).slice(-RECENT_MISS_CAUSES.length);
+  const out: CacheMiss[] = recent.map((s, i) => {
+    const causes = RECENT_MISS_CAUSES[i];
+    return {
+      session_id: s.id,
+      project: projectLabel(ds, s.project),
+      ts: s.started + Math.round((s.last - s.started) * 0.6),
+      causes,
+      tools_added: causes.includes('tools_changed') ? 2 : null,
+      tools_removed: causes.includes('tools_changed') ? i % 2 : null,
+      system_char_delta: causes.includes('system_prompt_changed') ? 1_240 : null,
+      correlated_changes: [],
+    };
+  });
+  if (quill)
+    out.push({
+      session_id: quill.id,
+      project: projectLabel(ds, quill.project),
+      ts: quill.started + 4 * 60_000,
+      causes: ['system_prompt_changed'],
+      tools_added: null,
+      tools_removed: null,
+      system_char_delta: 1_840,
+      correlated_changes: [md],
+    });
+  return out.sort((a, b) => b.ts - a.ts).slice(0, 8);
+}
+
+function subagentMix(recent: MockRecord[]): ModelMixSuggestion[] {
+  const subs = recent.filter((r) => r.agent === 'Explore' && r.model === 'claude-sonnet-4-5');
+  if (!subs.length) return [];
+  const current = subs.reduce((a, r) => a + (r.cost ?? 0), 0);
+  const projected = subs.reduce((a, r) => a + (costOf('claude-haiku-4-5', r.tokens) ?? 0), 0);
+  return [
+    {
+      code: 'subagents_to_haiku',
+      from_model: 'claude-sonnet-4-5',
+      to_model: 'claude-haiku-4-5',
+      scope: 'Explore',
+      affected_requests: subs.reduce((n, r) => n + r.requests, 0),
+      current_usd: current,
+      projected_usd: projected,
+      saving_usd: current - projected,
+      confidence: 'estimate',
+    },
+  ];
+}
+
+function sessionAnomalies(ds: Dataset): Anomaly[] {
+  const now = ds.clock();
+  const out: Anomaly[] = [];
+  const alert = ds.alerts.find((a) => a.kind === 'runaway_session');
+  const sid = (alert?.params as { session_id?: string } | null)?.session_id;
+  const runaway = ds.sessions.find((s) => s.id === sid);
+  if (runaway) {
+    const cost = sumUsage(bySession(ds).get(runaway.id) ?? []).cost_usd;
+    out.push({ kind: 'runaway_session', ts: runaway.last, session_id: runaway.id, project: projectLabel(ds, runaway.project), value: cost, baseline: cost / 3.1 });
+  }
+  const loop = [...ds.sessions].reverse().find((s) => s.project === 6 && s.last < now - DAY);
+  if (loop) out.push({ kind: 'agent_loop', ts: loop.last, session_id: loop.id, project: projectLabel(ds, loop.project), value: 46, baseline: 30 });
+  return out;
+}
+
 export function insights(ds: Dataset): Insights {
   const now = ds.clock();
   const recent = between(ds.records, now - 30 * DAY, now + 1);
@@ -758,13 +975,16 @@ export function insights(ds: Dataset): Insights {
       cache_write: r.usage.tokens.cache_write_5m + r.usage.tokens.cache_write_1h,
       input: r.usage.tokens.input,
     })),
-    miss_causes: [
-      { cause: 'ttl_expired_5m', count: 14 },
-      { cause: 'tools_changed', count: 6 },
-      { cause: 'system_prompt_changed', count: 3 },
-    ],
-    recent_misses: [],
-    breakers: [],
+    miss_causes: recent.length
+      ? [
+          { cause: 'ttl_expired_5m', count: 14 },
+          { cause: 'tools_changed', count: 6 },
+          { cause: 'system_prompt_changed', count: 3 },
+          { cause: 'model_changed', count: 2 },
+        ]
+      : [],
+    recent_misses: recent.length ? cacheMisses(ds) : [],
+    breakers: recent.length ? cacheBreakers(ds) : [],
   };
   const opusShort = recent.filter((r) => r.model === 'claude-opus-4-5' && r.agent === null && r.tokens.output < 4000);
   const current = opusShort.reduce((a, r) => a + (r.cost ?? 0), 0);
@@ -781,7 +1001,9 @@ export function insights(ds: Dataset): Insights {
   return {
     generated_at: now,
     cache,
-    model_mix: opusShort.length
+    model_mix: [
+      ...subagentMix(recent),
+      ...(opusShort.length
       ? [
           {
             code: 'short_turns_to_sonnet',
@@ -792,10 +1014,11 @@ export function insights(ds: Dataset): Insights {
             current_usd: current,
             projected_usd: projected,
             saving_usd: current - projected,
-            confidence: 'estimate',
+            confidence: 'estimate' as const,
           },
         ]
-      : [],
+      : []),
+    ].sort((a, b) => b.saving_usd - a.saving_usd),
     context_warnings: ds.sessions
       .filter((s) => s.last >= now - 10 * 60_000 && s.ctxPct >= ds.settings.alerts.context_threshold)
       .map((s) => ({
@@ -806,7 +1029,7 @@ export function insights(ds: Dataset): Insights {
         ctx_size: 200_000,
         exceeds_200k: false,
       })),
-    anomalies,
+    anomalies: [...anomalies, ...sessionAnomalies(ds)].sort((a, b) => b.ts - a.ts),
   };
 }
 
@@ -836,6 +1059,10 @@ const ALERT_TEXT: Record<string, Record<'en' | 'pl', [string, string]>> = {
   cost_spike: {
     en: ['Unusually expensive day', 'Spending was {ratio} times the usual daily amount.'],
     pl: ['Wyjątkowo drogi dzień', 'Wydatki były {ratio} razy wyższe niż zwykle w ciągu dnia.'],
+  },
+  runaway_session: {
+    en: ['A session cost far more than usual', 'One session in {project} cost {ratio} times as much as a typical session.'],
+    pl: ['Sesja kosztowała znacznie więcej niż zwykle', 'Jedna sesja w projekcie {project} kosztowała {ratio} razy więcej niż typowa sesja.'],
   },
   cache_cold: {
     en: ['The cache went cold', 'A session paused long enough for its cache to expire. The next request rebuilds it.'],
@@ -868,14 +1095,14 @@ export function budgets(ds: Dataset): Budget[] {
     const start = b.period === 'day' ? startOfDay(now) : b.period === 'week' ? weekStartOf(now, ds.settings.week_start) : bucketStart(now, 'month', 0);
     const end = b.period === 'day' ? start + DAY : b.period === 'week' ? start + 7 * DAY : new Date(new Date(start).getFullYear(), new Date(start).getMonth() + 1, 1).getTime();
     const recs = between(ds.records, start, now + 1).filter(
-      (r) => b.scope !== 'project' || String(r.project) === b.scope_value,
+      (r) => (b.scope !== 'project' || String(r.project) === b.scope_value) && (b.scope !== 'client' || clientOf(ds, r.project) === b.scope_value),
     );
     const spent = sumUsage(recs).cost_usd;
     const elapsed = Math.max(0.02, (now - start) / (end - start));
     const pct = b.amount_usd > 0 ? (spent / b.amount_usd) * 100 : 0;
     return {
       ...b,
-      scope_label: b.scope === 'project' && b.scope_value ? projectLabel(ds, Number(b.scope_value)) : null,
+      scope_label: b.scope === 'project' && b.scope_value ? projectLabel(ds, Number(b.scope_value)) : b.scope_value,
       period_start: start,
       period_end: end,
       spent_usd: spent,
@@ -888,41 +1115,30 @@ export function budgets(ds: Dataset): Budget[] {
 
 // ------------------------------------------------------------------- system
 
-export function system(ds: Dataset): SystemInfo {
-  const unpriced = dataStatus(ds).unpriced_models;
+export function system(ds: Dataset, lang?: string): SystemInfo {
+  const status = dataStatus(ds);
+  const unpriced = status.unpriced_models;
+  const database = { size_bytes: 18_400_000 + ds.records.length * 220, encrypted: true, key_source: 'keyring' as const, schema_version: 3 };
+  const pricing = { version: '2026-11-01', source: 'built-in', models: Object.keys(PRICES_LIST).length, signed: false, unpriced_models: unpriced };
+  const quarantine = quarantineRows(ds);
+  const claudeCode = ds.scenario === 'empty' ? null : '2.4.1';
   return {
     version: '0.1.0-sample',
     data_dir: '/home/dev/.local/share/kanjo',
     claude_dir: '/home/dev/.claude',
-    claude_code_version: ds.scenario === 'empty' ? null : '2.4.1',
-    database: { size_bytes: 18_400_000 + ds.records.length * 220, encrypted: true, key_source: 'keyring', schema_version: 3 },
+    claude_code_version: claudeCode,
+    database,
     ingest: ds.ingest,
     hooks: ds.hooks,
-    pricing: { version: '2026-11-01', source: 'built-in', models: Object.keys(PRICES_LIST).length, signed: false, unpriced_models: unpriced },
+    pricing,
     server: { bind: '127.0.0.1', port: 7341, tls: false, auth: true },
-    quarantine:
-      ds.scenario === 'unpriced'
-        ? [{ record_type: 'assistant', signature: 'message.usage.server_tool_use', reason: 'unknown_field_shape', cc_version: '2.4.1', count: 3, last_seen: ds.clock() - DAY }]
-        : [],
+    quarantine,
     retention: ds.settings.retention,
-    checks: [
-      { id: 'claude_dir', status: 'ok', title: 'Claude Code folder found', detail: '/home/dev/.claude', fix: null },
-      {
-        id: 'statusline',
-        status: ds.hooks.statusline_installed ? 'ok' : 'warn',
-        title: ds.hooks.statusline_installed ? 'Status line connected' : 'Status line not connected',
-        detail: ds.hooks.statusline_installed ? 'Limit readings arrive from Claude Code.' : 'Limit figures are estimated from history.',
-        fix: ds.hooks.statusline_installed ? null : 'Connect it from this page or with kanjo setup.',
-      },
-      { id: 'database', status: 'ok', title: 'Database encrypted', detail: 'The key is kept in the system keyring.', fix: null },
-      {
-        id: 'pricing',
-        status: unpriced.length ? 'warn' : 'ok',
-        title: unpriced.length ? 'Some models have no price' : 'Price table up to date',
-        detail: unpriced.length ? unpriced.join(', ') : 'Built-in table from 2026-11-01.',
-        fix: unpriced.length ? 'Import a signed price table that covers these models.' : null,
-      },
-    ],
+    checks: doctorChecks(
+      ds,
+      { sizeBytes: database.size_bytes, schema: database.schema_version, pricingVersion: pricing.version, unpriced, quarantined: quarantine.reduce((n, q) => n + q.count, 0), ccVersion: claudeCode },
+      lang,
+    ),
   };
 }
 
@@ -930,7 +1146,7 @@ const PRICES_LIST = { 'claude-opus-4-5': 1, 'claude-sonnet-4-5': 1, 'claude-haik
 
 export function auditPage(ds: Dataset, q: Q): AuditPage {
   const offset = q.offset ?? 0;
-  return { items: ds.audit.slice(offset, offset + (q.limit ?? 50)), total: ds.audit.length, chain_ok: true };
+  return { items: ds.audit.slice(offset, offset + (q.limit ?? 50)), total: ds.audit.length, chain_ok: verifyChain(ds) };
 }
 
 // ------------------------------------------------------------------- search

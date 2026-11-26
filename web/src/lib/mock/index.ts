@@ -1,8 +1,9 @@
-import type { BudgetInput, HookInstallRequest, LiveEvent, ProjectPatch, PurgeReport, PurgeRequest, Query, Settings } from '../api/contract';
+import type { BudgetInput, HookInstallRequest, LiveEvent, ProjectPatch, PurgeRequest, Query, Settings, Usage } from '../api/contract';
 import type { FetchLike } from '../api/client';
 import type { EventSourceLike } from '../api/live';
 import { advanceImport, appendLiveRecord, auditEntry, createDataset, SCENARIOS, type Dataset, type DatasetOptions, type Scenario } from './data';
 import * as v from './views';
+import { purgeDataset, seedSystem, startRescan, subscribe, validateSettings } from './system';
 
 /**
  * In-browser implementation of every /api/v1 endpoint over a synthetic
@@ -62,31 +63,46 @@ function csv(rows: (string | number | null)[][]): string {
 
 type Row = (string | number | null)[];
 
+const USAGE_HEADER = ['requests', 'unpriced_requests', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_5m_tokens', 'cache_write_1h_tokens', 'total_tokens', 'cost_usd'];
+
+function usageCells(u: Usage): Row {
+  const t = u.tokens;
+  return [u.requests, u.unpriced_requests, t.input, t.output, t.cache_read, t.cache_write_5m, t.cache_write_1h, t.input + t.output + t.cache_read + t.cache_write_5m + t.cache_write_1h, u.cost_usd.toFixed(6)];
+}
+
 function exportBody(ds: Dataset, view: string, q: Partial<Query>): { rows: Row[]; data: unknown } {
   const iso = (ts: number) => new Date(ts).toISOString();
   switch (view) {
     case 'usage': {
       const r = v.usageReport(ds, q);
-      const head: Row = ['bucket', 'cost_usd', 'requests', 'input', 'output', 'cache_read', 'cache_write'];
-      const body: Row[] = r.buckets.map((b) => [
-        b.label,
-        b.usage.cost_usd.toFixed(4),
-        b.usage.requests,
-        b.usage.tokens.input,
-        b.usage.tokens.output,
-        b.usage.tokens.cache_read,
-        b.usage.tokens.cache_write_5m + b.usage.tokens.cache_write_1h,
-      ]);
-      return { data: r, rows: [head, ...body] };
+      const body: Row[] = r.buckets.map((b) => [iso(b.start), b.label, ...usageCells(b.usage), b.by_model.map((m) => m.model).join(';')]);
+      return { data: r, rows: [['start', 'label', ...USAGE_HEADER, 'models'], ...body] };
     }
     case 'breakdown': {
       const r = v.breakdown(ds, q);
-      return { data: r, rows: [['key', 'label', 'cost_usd', 'share'], ...r.rows.map((x): Row => [x.key, x.label, x.usage.cost_usd.toFixed(4), x.share.toFixed(4)])] };
+      const body = r.rows.map((x): Row => [r.by, x.key, x.label, ...usageCells(x.usage), x.share.toFixed(6)]);
+      return { data: r, rows: [['dimension', 'key', 'label', ...USAGE_HEADER, 'share'], ...body] };
     }
     case 'sessions': {
       const r = v.sessionList(ds, { ...q, limit: 10_000 });
-      const body = r.items.map((s): Row => [s.id, s.project, iso(s.started_at), iso(s.last_at), s.usage.cost_usd.toFixed(4), s.usage.requests]);
-      return { data: r, rows: [['id', 'project', 'started_at', 'last_at', 'cost_usd', 'requests'], ...body] };
+      const body = r.items.map((s): Row => [
+        s.id,
+        s.project_id,
+        s.project,
+        s.title,
+        s.git_branch,
+        iso(s.started_at),
+        iso(s.last_at),
+        ...usageCells(s.usage),
+        s.main_model,
+        s.models.join(';'),
+        s.subagent_cost_usd.toFixed(6),
+        String(s.is_active),
+        s.context_pct === null ? null : s.context_pct.toFixed(1),
+        s.cache_hit_ratio === null ? null : s.cache_hit_ratio.toFixed(4),
+      ]);
+      const head: Row = ['id', 'project_id', 'project', 'title', 'git_branch', 'started_at', 'last_at', ...USAGE_HEADER];
+      return { data: r, rows: [[...head, 'main_model', 'models', 'subagent_cost_usd', 'is_active', 'context_pct', 'cache_hit_ratio'], ...body] };
     }
     case 'blocks': {
       const r = v.computeBlocks(ds);
@@ -95,8 +111,13 @@ function exportBody(ds: Dataset, view: string, q: Partial<Query>): { rows: Row[]
     }
     case 'turns': {
       const r = v.turns(ds, q);
-      const body = r.map((x): Row => [x.message_id, x.session_id, iso(x.ts), x.model, x.cost_usd === null ? null : x.cost_usd.toFixed(4)]);
-      return { data: r, rows: [['message_id', 'session_id', 'ts', 'model', 'cost_usd'], ...body] };
+      const tk = ['ts', 'message_id', 'session_id', 'project', 'model', 'agent_type', ...USAGE_HEADER.slice(2, 8), 'cost_usd', 'stop_reason', 'tools'];
+      const body = r.map((x): Row => {
+        const t = x.tokens;
+        const total = t.input + t.output + t.cache_read + t.cache_write_5m + t.cache_write_1h;
+        return [iso(x.ts), x.message_id, x.session_id, x.project, x.model, x.agent_type, t.input, t.output, t.cache_read, t.cache_write_5m, t.cache_write_1h, total, x.cost_usd === null ? null : x.cost_usd.toFixed(6), x.stop_reason, x.tools.join(';')];
+      });
+      return { data: r, rows: [tk, ...body] };
     }
     case 'alerts': {
       const r = v.alertList(ds, { ...q, limit: 10_000 });
@@ -211,12 +232,16 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
       return json(null, 204);
     case 'GET /settings':
       return json(ds.settings);
-    case 'PUT /settings':
-      ds.settings = await readBody<Settings>(init);
+    case 'PUT /settings': {
+      const next = await readBody<Settings>(init);
+      const problem = validateSettings(next);
+      if (problem) throw new HttpError(400, 'invalid', problem);
+      ds.settings = next;
       auditEntry(ds, 'settings.update', 'settings');
       return json(ds.settings);
+    }
     case 'GET /system':
-      return json(v.system(ds));
+      return json(v.system(ds, typeof q.lang === 'string' ? q.lang : undefined));
     case 'POST /system/hooks': {
       const r = await readBody<HookInstallRequest>(init);
       ds.hooks = {
@@ -226,6 +251,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
         service_installed: ds.hooks.service_installed || r.service,
         last_statusline_at: r.statusline ? ds.clock() : ds.hooks.last_statusline_at,
       };
+      if (r.statusline && ds.statuslineSince === null) ds.statuslineSince = ds.clock();
       ds.backups.unshift({ file: 'claude-settings-before-hooks.json', created_at: ds.clock(), size_bytes: 2_310 });
       auditEntry(ds, 'hooks.install', 'settings.json', { ...r });
       return json(ds.hooks);
@@ -243,27 +269,15 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
       return json(b);
     }
     case 'POST /system/purge': {
-      const r = await readBody<PurgeRequest>(init);
-      const hit = (project: number, session: string, ts: number) =>
-        r.everything || (r.project != null && project === r.project) || (r.session != null && session === r.session) || (r.before != null && ts < r.before);
-      const before = ds.records.length;
-      ds.records = ds.records.filter((x) => !hit(x.project, x.session, x.ts));
-      const sessionsBefore = ds.sessions.length;
-      ds.sessions = ds.sessions.filter((s) => !hit(s.project, s.id, s.last));
-      const report: PurgeReport = {
-        requests: before - ds.records.length,
-        sessions: sessionsBefore - ds.sessions.length,
-        aggregates: 0,
-        limit_samples: 0,
-        alerts: 0,
-        audit_entries: 0,
-        quarantine: 0,
-      };
-      auditEntry(ds, 'data.purge', 'requests', { ...report });
+      const req = await readBody<PurgeRequest>(init);
+      const report = purgeDataset(ds, req);
+      if (typeof report === 'string') throw new HttpError(400, 'invalid', report);
+      const target = req.everything ? 'everything' : req.project != null ? `project ${req.project}` : req.session != null ? `session ${req.session}` : `before ${new Date(req.before ?? 0).toISOString().slice(0, 10)}`;
+      auditEntry(ds, 'data.purge', target, { ...report });
       return json(report);
     }
     case 'POST /system/rescan':
-      return json(ds.ingest);
+      return json(startRescan(ds));
     case 'GET /audit':
       return json(v.auditPage(ds, q));
     case 'GET /search':
@@ -283,6 +297,10 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
   }
 }
 
+/** In the expired scenario the session cookie stops working a few seconds after load. */
+const EXPIRES_AFTER_MS = 6000;
+const expired = (ds: Dataset) => ds.scenario === 'expired' && ds.clock() - ds.createdAt > EXPIRES_AFTER_MS;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 class MockEventSource implements EventSourceLike {
@@ -292,12 +310,18 @@ class MockEventSource implements EventSourceLike {
   private timeouts: ReturnType<typeof setTimeout>[] = [];
   private intervals: ReturnType<typeof setInterval>[] = [];
   private closed = false;
+  private unsubscribe: () => void = () => undefined;
 
   constructor(
     private readonly ds: Dataset,
     intervalMs: number,
   ) {
+    if (ds.scenario === 'expired') {
+      this.timeouts.push(setTimeout(() => this.onerror?.(new Event('error')), expired(ds) ? 120 : Math.max(150, ds.createdAt + EXPIRES_AFTER_MS - ds.clock())));
+      if (expired(ds)) return;
+    }
     this.timeouts.push(setTimeout(() => this.onopen?.(new Event('open')), 150));
+    this.unsubscribe = subscribe(ds, (e) => this.emit(e));
     this.intervals.push(setInterval(() => this.tick(), intervalMs));
     if (ds.ingest.backfill_running) this.intervals.push(setInterval(() => this.importTick(), 1600));
   }
@@ -323,6 +347,7 @@ class MockEventSource implements EventSourceLike {
 
   close(): void {
     this.closed = true;
+    this.unsubscribe();
     for (const t of this.timeouts) clearTimeout(t);
     for (const t of this.intervals) clearInterval(t);
   }
@@ -334,6 +359,7 @@ export function scenarioFrom(value: string | null | undefined): Scenario {
 
 export function createMock(opts: MockOptions = {}): MockServer {
   const ds = createDataset(opts);
+  seedSystem(ds);
   const latency = opts.latencyMs ?? 140;
   const fetch: FetchLike = async (url, init) => {
     const u = new URL(url);
@@ -341,6 +367,7 @@ export function createMock(opts: MockOptions = {}): MockServer {
     const path = at >= 0 ? u.pathname.slice(at + '/api/v1'.length) : u.pathname;
     if (latency > 0) await sleep(latency * (0.6 + Math.random() * 0.8));
     if (ds.scenario === 'unauthorized' && path !== '/health') return json({ code: 'unauthorized', message: 'Missing or wrong access token' }, 401);
+    if (expired(ds) && path !== '/health') return json({ code: 'unauthorized', message: 'The session cookie has expired' }, 401);
     try {
       return await handle(ds, (init.method ?? 'GET').toUpperCase(), path, u.searchParams, init);
     } catch (e) {

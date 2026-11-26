@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { LiveEvent } from './contract';
-import { backoffDelay, LiveConnection, parseLiveEvent, TagBatcher, tagsFor, type EventSourceLike, type LiveStatus } from './live';
+import { watchAuth, backoffDelay, LiveConnection, parseLiveEvent, TagBatcher, tagsFor, type EventSourceLike, type LiveStatus } from './live';
 
 class FakeSource implements EventSourceLike {
   onopen: ((ev: Event) => void) | null = null;
@@ -114,5 +114,38 @@ describe('events', () => {
     expect(flush).toHaveBeenCalledTimes(1);
     expect(flush.mock.calls[0][0].sort()).toEqual(['limits', 'usage']);
     vi.useRealTimers();
+  });
+});
+
+describe('watchAuth', () => {
+  test('probes once per dropped attempt and stops the stream when the probe is refused', async () => {
+    let refused = false;
+    let probes = 0;
+    let stopped = 0;
+    const watch = watchAuth(
+      async () => {
+        probes++;
+        refused = true;
+      },
+      () => refused,
+      () => stopped++,
+    );
+    watch('connecting', 0);
+    watch('reconnecting', 1);
+    watch('reconnecting', 1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(probes).toBe(1);
+    expect(stopped).toBe(1);
+  });
+
+  test('a network failure keeps the stream reconnecting', async () => {
+    let stopped = 0;
+    const watch = watchAuth(() => Promise.reject(new Error('offline')), () => false, () => stopped++);
+    watch('reconnecting', 1);
+    await new Promise((r) => setTimeout(r, 0));
+    watch('open', 0);
+    watch('reconnecting', 1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(stopped).toBe(0);
   });
 });

@@ -1,65 +1,84 @@
 <script lang="ts">
-  import type { Block } from '../lib/api/contract';
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
-  import ChartCard from '../lib/charts/ChartCard.svelte';
-  import LineArea from '../lib/charts/LineArea.svelte';
   import { fmt, t } from '../lib/i18n/index.svelte';
+  import ConnectPanel from '../lib/shell/ConnectPanel.svelte';
+  import { describeError } from '../lib/stores/app.svelte';
+  import Banner from '../lib/ui/Banner.svelte';
+  import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
-  import ConfidenceBadge from '../lib/ui/ConfidenceBadge.svelte';
-  import DataTable, { type Column } from '../lib/ui/DataTable.svelte';
-  import LimitMeter from '../lib/ui/LimitMeter.svelte';
-  import Money from '../lib/ui/Money.svelte';
+  import Dialog from '../lib/ui/Dialog.svelte';
+  import EmptyState from '../lib/ui/EmptyState.svelte';
   import PageHeader from '../lib/ui/PageHeader.svelte';
   import Skeleton from '../lib/ui/Skeleton.svelte';
+  import Answer from './limits/Answer.svelte';
+  import BlocksCard from './limits/BlocksCard.svelte';
+  import DailyBudget from './limits/DailyBudget.svelte';
+  import EstimateCard from './limits/EstimateCard.svelte';
+  import HistoryCard from './limits/HistoryCard.svelte';
+  import Meters from './limits/Meters.svelte';
+  import PerPctCard from './limits/PerPctCard.svelte';
 
   const limits = useQuery(() => queries.limits());
   const d = $derived(limits.data);
-  const series = $derived([{ key: '7d', label: t('dashboard.limits.seven_day'), color: 'var(--series-1)', points: (d?.history_7d ?? []).map((p) => ({ x: p.ts, y: p.used_pct })) }]);
-  let sortKey = $state('start');
-  let sortDir = $state<'asc' | 'desc'>('desc');
-  const columns = $derived<Column<Block>[]>([
-    { key: 'start', label: t('pages.limits.block_start'), value: (b) => b.start },
-    { key: 'peak', label: t('pages.limits.peak'), align: 'end', value: (b) => b.peak_pct ?? 0 },
-    { key: 'cost', label: t('pages.limits.cost'), align: 'end', value: (b) => b.usage.cost_usd, header: badge },
-  ]);
+  const cur = $derived(d?.current);
+  const official = $derived(!!cur && (!!cur.five_hour || !!cur.seven_day));
+  const metered = $derived(official || !!cur?.spend);
+  const r = $derived(limits.refreshing);
+  let connectOpen = $state(false);
 </script>
 
-{#snippet badge()}<ConfidenceBadge confidence="lower_bound" compact />{/snippet}
+<PageHeader title={t('pages.limits.title')} lede={t('pages.limits.lede')}>
+  {#snippet meta()}
+    {#if d}<span>{t('common.updated', { ago: fmt.ago(d.current.five_hour?.observed_at ?? d.current.seven_day?.observed_at ?? Date.now()) })}</span>{/if}
+  {/snippet}
+</PageHeader>
 
-<PageHeader title={t('pages.limits.title')} lede={t('pages.limits.lede')} />
+{#snippet connectAction()}
+  <Button variant="primary" icon="plug" onclick={() => (connectOpen = true)}>{t('pages.limits.estimate.connect_action')}</Button>
+{/snippet}
 
-{#if d}
-  <div class="stack">
-    <Card>
-      <div class="meters">
-        <LimitMeter name={t('dashboard.limits.five_hour')} window={d.current.five_hour} windowMs={5 * 3_600_000} />
-        <LimitMeter name={t('dashboard.limits.seven_day')} window={d.current.seven_day} windowMs={7 * 86_400_000} />
-      </div>
-    </Card>
-    {#if d.history_7d.length}
-      <ChartCard title={t('pages.limits.history')} refreshing={limits.refreshing}>
-        {#snippet chart()}
-          <LineArea {series} label={t('pages.limits.history')} format={(v) => fmt.pct(v)} xFormat={(x) => fmt.dateTime(x)} xTick={(x) => fmt.date(x, 'short')} yMax={100} reference={{ y: 100, label: t('dashboard.limits.seven_day') }} />
-        {/snippet}
-        {#snippet table()}
-          <DataTable caption={t('pages.limits.history')} rows={d.history_7d.slice(-48)} columns={[{ key: 'ts', label: t('chart.date') }, { key: 'pct', label: t('dashboard.limits.used'), align: 'end' }]} rowKey={(p) => String(p.ts)} dense>
-            {#snippet cell(p, col)}{col.key === 'ts' ? fmt.dateTime(p.ts) : fmt.pct(p.used_pct)}{/snippet}
-          </DataTable>
-        {/snippet}
-      </ChartCard>
-    {/if}
-    <Card title={t('pages.limits.blocks')} flush>
-      <DataTable caption={t('pages.limits.blocks')} rows={d.blocks.slice(0, 12)} {columns} rowKey={(b) => String(b.start)} bind:sortKey bind:sortDir dense>
-        {#snippet cell(b, col)}
-          {#if col.key === 'start'}{fmt.dateTime(b.start)}{:else if col.key === 'peak'}{b.peak_pct === null ? '' : fmt.pct(b.peak_pct)}{:else}<Money usd={b.usage.cost_usd} confidence="lower_bound" size="sm" badge="none" />{/if}
-        {/snippet}
-      </DataTable>
-    </Card>
+{#if limits.error && !d}
+  <Banner tone="warning" title={t('common.error_title')} body={describeError(limits.error)}>
+    {#snippet action()}<Button icon="refresh" onclick={() => limits.refetch()}>{t('common.retry')}</Button>{/snippet}
+  </Banner>
+{:else if !d || !cur}
+  <div class="stack" aria-busy="true">
+    <div class="sk-answer"><Skeleton height="2.2rem" lines={2} /></div>
+    <div class="grid">
+      <div class="span-7"><Card><Skeleton height="1rem" lines={4} /></Card></div>
+      <div class="span-5"><Card><Skeleton height="1rem" lines={4} /></Card></div>
+      <div class="span-12"><Card><Skeleton height="220px" radius="var(--r-md)" /></Card></div>
+    </div>
   </div>
+{:else if !metered && !cur.estimate && !d.blocks.length}
+  <Card>
+    <EmptyState icon="limits" title={t('pages.limits.none_title')} body={t('pages.limits.none_body')} action={connectAction} />
+  </Card>
 {:else}
-  <Card><Skeleton lines={6} /></Card>
+  {#if official}
+    <Answer limits={cur} />
+  {:else if !cur.spend}
+    <div class="banner">
+      <Banner icon="plug" title={t('pages.limits.estimate.connect_title')} body={t('pages.limits.estimate.connect_body')} action={connectAction} />
+    </div>
+  {/if}
+  <div class="grid">
+    {#if metered}
+      <div class={cur.seven_day && !cur.spend ? 'span-7' : 'span-12'}><Meters limits={cur} refreshing={r} /></div>
+      {#if cur.seven_day}<div class={cur.spend ? 'span-12' : 'span-5'}><DailyBudget week={cur.seven_day} refreshing={r} /></div>{/if}
+    {:else if cur.estimate}
+      <div class="span-12"><EstimateCard estimate={cur.estimate} active={d.blocks.some((b) => b.is_active)} refreshing={r} /></div>
+    {/if}
+    <div class="span-12"><BlocksCard blocks={d.blocks} refreshing={r} /></div>
+    <div class="span-12"><HistoryCard h5={d.history_5h} h7={d.history_7d} refreshing={r} /></div>
+    <div class="span-12"><PerPctCard weeks={d.usd_per_pct_weekly} refreshing={r} /></div>
+  </div>
 {/if}
+
+<Dialog bind:open={connectOpen} title={t('onboarding.connect.title')} description={t('onboarding.connect.body')} size="md">
+  <ConnectPanel onconnected={() => setTimeout(() => ((connectOpen = false), limits.refetch()), 1200)} />
+</Dialog>
 
 <style>
   .stack {
@@ -67,9 +86,44 @@
     flex-direction: column;
     gap: var(--sp-5);
   }
-  .meters {
+  .sk-answer {
+    max-width: 560px;
+    padding-bottom: var(--sp-4);
+  }
+  .banner {
+    margin-bottom: var(--sp-5);
+  }
+  .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: var(--sp-7);
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--sp-5);
+  }
+  .grid > div {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .grid > div > :global(.card) {
+    flex: 1;
+  }
+  .span-12 {
+    grid-column: span 12;
+  }
+  .span-7 {
+    grid-column: span 7;
+  }
+  .span-5 {
+    grid-column: span 5;
+  }
+  @media (max-width: 1180px) {
+    .span-7,
+    .span-5 {
+      grid-column: span 12;
+    }
+  }
+  @media (max-width: 860px) {
+    .grid {
+      gap: var(--sp-4);
+    }
   }
 </style>

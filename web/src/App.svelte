@@ -11,6 +11,7 @@
   import Button from './lib/ui/Button.svelte';
   import Toaster from './lib/ui/Toaster.svelte';
   import Dashboard from './pages/Dashboard.svelte';
+  import Extras from './pages/help/Extras.svelte';
 
   type Loader = () => Promise<{ default: Component }>;
   const LAZY: Partial<Record<RouteName, Loader>> = {
@@ -66,6 +67,7 @@
   </Shell>
 {/if}
 <Toaster />
+<Extras />
 
 <style>
   .splash {

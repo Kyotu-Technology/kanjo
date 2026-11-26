@@ -80,6 +80,30 @@ describe('mock API', () => {
     expect((await api.session(id)).summary.id).toBe(id);
   });
 
+  test('session detail agrees with its summary', async () => {
+    const { api } = client();
+    const list = await api.sessions({ limit: 40 });
+    for (const s of list.items) {
+      const d = await api.session(s.id);
+      near(d.by_model.reduce((a, r) => a + r.usage.cost_usd, 0), d.summary.usage.cost_usd);
+      near(d.timeline.reduce((a, b) => a + b.usage.cost_usd, 0), d.summary.usage.cost_usd);
+      for (const m of d.cache_misses) expect(m.ts >= d.summary.started_at && m.ts <= d.summary.last_at).toBe(true);
+      if (d.status?.cost_usd != null) expect(d.status.cost_usd).toBeGreaterThanOrEqual(d.summary.usage.cost_usd);
+      expect(d.events[0].event).toBe('SessionStart');
+    }
+    const turns = await api.turns({ limit: 10 });
+    expect(turns.map((x) => x.cost_usd ?? 0)).toEqual([...turns.map((x) => x.cost_usd ?? 0)].sort((a, b) => b - a));
+  });
+
+  test('privacy scenarios hide paths and allow the audited transcript', async () => {
+    const redacted = await client({ scenario: 'redacted' }).api.projects();
+    expect(redacted.every((p) => p.path === null && /^Project \d+$/.test(p.name))).toBe(true);
+    const { api } = client({ scenario: 'viewer' });
+    const id = (await api.sessions({ limit: 1 })).items[0].id;
+    expect((await api.transcript(id)).messages.length).toBeGreaterThan(0);
+    expect((await api.audit()).items[0]).toMatchObject({ action: 'transcript.view', target: id });
+  });
+
   test('alerts render in the requested language and acknowledge', async () => {
     const { api } = client();
     const pl = await api.alerts({ lang: 'pl', q: 'open' });
@@ -98,6 +122,8 @@ describe('mock API', () => {
   test('export returns a CSV file', async () => {
     const d = await client().api.exportView('usage', 'csv');
     expect(d.filename).toBe('kanjo-usage-sample.csv');
-    expect((await d.blob.text()).split('\n')[0]).toBe('bucket,cost_usd,requests,input,output,cache_read,cache_write');
+    expect((await d.blob.text()).split('\n')[0]).toBe(
+      'start,label,requests,unpriced_requests,input_tokens,output_tokens,cache_read_tokens,cache_write_5m_tokens,cache_write_1h_tokens,total_tokens,cost_usd,models',
+    );
   });
 });

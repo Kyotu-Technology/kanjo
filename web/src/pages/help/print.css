@@ -1,0 +1,70 @@
+/* Print: reports leave the app chrome behind and print in the light palette. */
+@media print {
+  @page {
+    margin: 14mm 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  .skip,
+  .sidebar,
+  .topbar,
+  .toaster,
+  .secnav,
+  aside.side,
+  .btn,
+  dialog,
+  [data-noprint] {
+    display: none !important;
+  }
+  .shell {
+    display: block !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  main[data-print-head]::before {
+    content: attr(data-print-head);
+    display: block;
+    margin-bottom: 6mm;
+    padding-bottom: 3mm;
+    border-bottom: 1px solid var(--line-strong);
+    color: var(--ink-2);
+    font-size: 9pt;
+  }
+  main[data-print-foot]::after {
+    content: attr(data-print-foot);
+    display: block;
+    margin-top: 8mm;
+    padding-top: 3mm;
+    border-top: 1px solid var(--line-strong);
+    color: var(--ink-3);
+    font-size: 8pt;
+  }
+  .card,
+  figure,
+  tr,
+  li {
+    break-inside: avoid;
+  }
+  .card {
+    box-shadow: none !important;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    animation: none !important;
+    transition: none !important;
+  }
+}

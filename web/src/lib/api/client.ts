@@ -140,7 +140,7 @@ export class ApiClient {
   deleteBudget = (id: number) => this.request<void>('DELETE', `budgets/${id}`);
   settings = () => this.request<Settings>('GET', 'settings');
   saveSettings = (s: Settings) => this.request<Settings>('PUT', 'settings', { body: s });
-  system = () => this.request<SystemInfo>('GET', 'system');
+  system = (q: QueryParams = {}) => this.request<SystemInfo>('GET', 'system', { query: q });
   installHooks = (r: HookInstallRequest) => this.request<HookStatus>('POST', 'system/hooks', { body: r });
   removeHooks = () => this.request<HookStatus>('DELETE', 'system/hooks');
   backups = () => this.request<BackupInfo[]>('GET', 'system/backups');

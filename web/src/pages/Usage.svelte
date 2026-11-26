@@ -1,152 +1,214 @@
 <script lang="ts">
-  import type { DayCell, Dimension, Granularity, HeatCell } from '../lib/api/contract';
-  import { DAY_KEYS } from '../lib/i18n/format';
+  import type { BreakdownRow } from '../lib/api/contract';
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
-  import ChartCard from '../lib/charts/ChartCard.svelte';
-  import ShareBars from '../lib/charts/ShareBars.svelte';
-  import StackedBars, { type BarDatum } from '../lib/charts/StackedBars.svelte';
-  import { modelColor, modelLabel, modelSeries } from '../lib/charts/series';
-  import { fmt, i18n, t, tk } from '../lib/i18n/index.svelte';
-  import { rangeFor, type DateRange } from '../lib/range';
+  import { modelLabel } from '../lib/charts/series';
+  import { fmt, i18n, t, tk, tn } from '../lib/i18n/index.svelte';
+  import { href } from '../lib/router';
+  import { app, describeError } from '../lib/stores/app.svelte';
   import { router } from '../lib/stores/router.svelte';
+  import Answer from '../lib/ui/Answer.svelte';
+  import Rich, { strong } from '../lib/ui/Rich.svelte';
+  import Banner from '../lib/ui/Banner.svelte';
+  import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
-  import ConfidenceBadge from '../lib/ui/ConfidenceBadge.svelte';
-  import DataTable, { type Column } from '../lib/ui/DataTable.svelte';
   import DateRangePicker from '../lib/ui/DateRangePicker.svelte';
+  import EmptyState from '../lib/ui/EmptyState.svelte';
+  import InlineHelp from '../lib/ui/InlineHelp.svelte';
+  import Money from '../lib/ui/Money.svelte';
   import PageHeader from '../lib/ui/PageHeader.svelte';
   import Select from '../lib/ui/Select.svelte';
   import Skeleton from '../lib/ui/Skeleton.svelte';
+  import Stat from '../lib/ui/Stat.svelte';
   import Tabs from '../lib/ui/Tabs.svelte';
-  import HourHeatmap from '../lib/charts/HourHeatmap.svelte';
-  import CalendarHeatmap from '../lib/charts/CalendarHeatmap.svelte';
-  import { app } from '../lib/stores/app.svelte';
+  import BreakdownCard from './usage/BreakdownCard.svelte';
+  import Compare from './usage/Compare.svelte';
+  import ExportDialog from './usage/ExportDialog.svelte';
+  import Figure from './usage/Figure.svelte';
+  import FigureStrip from './usage/FigureStrip.svelte';
+  import Heatmaps from './usage/Heatmaps.svelte';
+  import { rangeText, rowLabel } from './usage/labels';
+  import OverTime from './usage/OverTime.svelte';
+  import { apiFilters, fromQuery, toQuery, type UsageFilters } from './usage/state';
 
-  let range = $state<DateRange>(rangeFor('last_30', i18n.now));
-  let group = $state<Granularity>('day');
-  let by = $state<Dimension>('project');
-  const model = $derived(router.current.query.model);
-  const params = $derived({ from: range.from, to: range.to, group, model });
-  const usage = useQuery(() => queries.usage(params));
-  const breakdown = useQuery(() => queries.breakdown({ from: range.from, to: range.to, by, model }));
-  const heat = useQuery(() => queries.heatmap({ from: range.from, to: range.to, model }));
-  const year = useQuery(() => queries.heatmap({}));
+  let f = $state<UsageFilters>(fromQuery(router.current.query, i18n.now));
+  let exportOpen = $state(false);
+  let lastQuery = JSON.stringify(router.current.query);
 
-  const fold = $derived.by(() => {
-    const totals = new Map<string, number>();
-    for (const b of usage.data?.buckets ?? []) for (const s of b.by_model) totals.set(s.model, (totals.get(s.model) ?? 0) + s.cost_usd);
-    return modelSeries(totals, t('common.other'), 4);
+  $effect(() => {
+    const q = router.current.query;
+    const key = JSON.stringify(q);
+    if (key === lastQuery) return;
+    lastQuery = key;
+    f = fromQuery(q, i18n.now);
   });
-  const data = $derived<BarDatum[]>(
-    (usage.data?.buckets ?? []).map((b) => {
-      const values: Record<string, number> = {};
-      for (const s of b.by_model) values[fold.fold(s.model)] = (values[fold.fold(s.model)] ?? 0) + s.cost_usd;
-      const label = group === 'hour' ? fmt.dateTime(b.start) : group === 'month' ? b.label : fmt.date(b.start, 'medium');
-      return { key: b.label, label, tick: group === 'hour' ? fmt.time(b.start) : group === 'month' ? b.label : fmt.date(b.start, 'short'), values };
-    }),
+  $effect(() => {
+    const target = href('/usage', toQuery(f));
+    if (location.hash !== target) {
+      history.replaceState(history.state, '', target);
+      lastQuery = JSON.stringify(Object.fromEntries(new URLSearchParams(target.split('?')[1] ?? '')));
+    }
+  });
+
+  const filt = $derived(apiFilters(f));
+  const base = $derived({ from: f.range.from, to: f.range.to, ...filt });
+  const span = $derived(f.range.to - f.range.from);
+  const days = $derived(Math.max(1, Math.round(span / 86_400_000)));
+  const usage = useQuery(() => queries.usage({ ...base, group: f.group }));
+  const prev = useQuery(() => queries.usage({ ...filt, from: f.range.from - span, to: f.range.from, group: 'month' }));
+  const breakdown = useQuery(() => queries.breakdown({ ...base, by: f.by }));
+  const byModel = useQuery(() => queries.breakdown({ ...base, by: 'model' }));
+  const byProject = useQuery(() => queries.breakdown({ ...base, by: 'project' }));
+  const allModels = useQuery(() => queries.breakdown({ from: f.range.from, to: f.range.to, by: 'model' }));
+  const allAgents = useQuery(() => queries.breakdown({ from: f.range.from, to: f.range.to, by: 'agent' }));
+  const projects = useQuery(() => queries.projects());
+  const heat = useQuery(() => queries.heatmap(base));
+  const year = useQuery(() => queries.heatmap(filt));
+
+  const withCurrent = (opts: { value: string; label: string }[], value: string, label: string) =>
+    value && !opts.some((o) => o.value === value) ? [...opts, { value, label }] : opts;
+  const projectOptions = $derived(
+    withCurrent(
+      (projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+      f.project,
+      projects.data?.find((p) => String(p.id) === f.project)?.name ?? f.project,
+    ),
   );
-  let heatSort = $state('cost');
-  let daySort = $state('date');
-  const heatColumns = $derived<Column<HeatCell>[]>([
-    { key: 'day', label: t('chart.weekday'), value: (c) => c.dow },
-    { key: 'hour', label: t('chart.hour'), value: (c) => c.hour },
-    { key: 'cost', label: t('chart.cost'), align: 'end', value: (c) => c.cost_usd },
-  ]);
-  const dayColumns = $derived<Column<DayCell>[]>([
-    { key: 'date', label: t('chart.date'), value: (d) => d.date },
-    { key: 'cost', label: t('chart.cost'), align: 'end', value: (d) => d.cost_usd },
-  ]);
-  const dims: Dimension[] = ['project', 'model', 'agent', 'client', 'branch', 'tool', 'skill', 'mcp'];
-  const columns = $derived<Column<BarDatum>[]>([
-    { key: 'bucket', label: t('chart.date'), value: (r) => r.key },
-    { key: 'total', label: t('common.total'), align: 'end', value: (r) => Object.values(r.values).reduce((a, b) => a + b, 0) },
-  ]);
+  const modelOptions = $derived(withCurrent((allModels.data?.rows ?? []).map((r) => ({ value: r.key, label: modelLabel(r.key) })), f.model, modelLabel(f.model)));
+  const agentOptions = $derived(withCurrent((allAgents.data?.rows ?? []).map((r) => ({ value: r.key, label: rowLabel('agent', r) })), f.agent, f.agent));
+  const clientOptions = $derived(
+    withCurrent(
+      [...new Set((projects.data ?? []).map((p) => p.client).filter((c): c is string => !!c))].sort().map((c) => ({ value: c, label: c })),
+      f.client,
+      f.client,
+    ),
+  );
+  const active = $derived(
+    [
+      f.project && (projectOptions.find((o) => o.value === f.project)?.label ?? f.project),
+      f.model && modelLabel(f.model),
+      f.agent && (f.agent === 'main' ? t('common.main') : f.agent),
+      f.client,
+    ].filter((x): x is string => !!x),
+  );
+  const summary = $derived(active.join(', '));
+
+  const total = $derived(usage.data?.total);
+  const prevCost = $derived(prev.data?.total.cost_usd);
+  const delta = $derived(total && prevCost !== undefined && prevCost > 1e-9 ? ((total.cost_usd - prevCost) / prevCost) * 100 : null);
+  const tokens = $derived(total ? total.tokens.input + total.tokens.output + total.tokens.cache_read + total.tokens.cache_write_5m + total.tokens.cache_write_1h : 0);
+  const cacheRatio = $derived.by(() => {
+    if (!total) return null;
+    const d = total.tokens.cache_read + total.tokens.cache_write_5m + total.tokens.cache_write_1h + total.tokens.input;
+    return d > 0 ? total.tokens.cache_read / d : null;
+  });
+  const topModel = $derived(byModel.data?.rows[0]);
+  const topProject = $derived(byProject.data?.rows[0]);
+  const dates = $derived(rangeText(f.range.from, f.range.to));
+
+  function linkFor(r: BreakdownRow): string | undefined {
+    if (!r.key) return undefined;
+    if (f.by === 'session') return href(`/sessions/${encodeURIComponent(r.key)}`);
+    if (f.by !== 'project' && f.by !== 'model' && f.by !== 'agent' && f.by !== 'client') return undefined;
+    if (f[f.by] === r.key) return undefined;
+    return href('/usage', toQuery({ ...f, [f.by]: r.key, by: f.by === 'project' ? 'model' : 'project' }));
+  }
+
+  function clear() {
+    f = { ...f, project: '', model: '', agent: '', client: '' };
+  }
 </script>
 
 <PageHeader title={t('pages.usage.title')} lede={t('pages.usage.lede')}>
+  {#snippet meta()}
+    <Button size="sm" icon="download" onclick={() => (exportOpen = true)}>{t('pages.usage.export.button')}</Button>
+  {/snippet}
   {#snippet filters()}
-    <DateRangePicker bind:value={range} />
-    <Tabs
-      label={t('pages.usage.over_time')}
-      items={(['hour', 'day', 'week', 'month'] as const).map((g) => ({ id: g, label: t(`pages.usage.group.${g}`) }))}
-      bind:value={group}
-    />
-    {#if model}<span class="chip">{modelLabel(model)}</span>{/if}
+    <DateRangePicker bind:value={f.range} />
+    <Tabs label={t('pages.usage.granularity')} items={(['hour', 'day', 'week', 'month'] as const).map((g) => ({ id: g, label: t(`pages.usage.group.${g}`) }))} bind:value={f.group} />
+    <div class="selects">
+      <Select label={t('pages.usage.filters.project')} hideLabel bind:value={f.project} options={[{ value: '', label: t('pages.usage.filters.all_projects') }, ...projectOptions]} />
+      <Select label={t('pages.usage.filters.model')} hideLabel bind:value={f.model} options={[{ value: '', label: t('pages.usage.filters.all_models') }, ...modelOptions]} />
+      <span class="with-help">
+        <Select label={t('pages.usage.filters.agent')} hideLabel bind:value={f.agent} options={[{ value: '', label: t('pages.usage.filters.all_agents') }, ...agentOptions]} />
+        <InlineHelp text={t('pages.usage.agent_help')} label={t('pages.usage.filters.agent')} />
+      </span>
+      <Select label={t('pages.usage.filters.client')} hideLabel bind:value={f.client} options={[{ value: '', label: t('pages.usage.filters.all_clients') }, ...clientOptions]} />
+      {#if active.length}<Button variant="ghost" icon="x" onclick={clear}>{t('pages.usage.filters.clear')}</Button>{/if}
+    </div>
   {/snippet}
 </PageHeader>
 
-<div class="stack">
-  {#if usage.data}
-    <ChartCard title={t('pages.usage.over_time')} legend={fold.series} refreshing={usage.refreshing}>
-      {#snippet note()}<ConfidenceBadge confidence={usage.data?.confidence ?? 'lower_bound'} />{/snippet}
-      {#snippet chart()}
-        <StackedBars {data} series={fold.series} label={t('pages.usage.over_time')} format={(v) => fmt.money(v)} axisFormat={(v) => fmt.money(v, { compact: true, digits: 0 })} totalLabel={t('common.total')} height={260} />
-      {/snippet}
-      {#snippet table()}
-        <DataTable caption={t('pages.usage.over_time')} rows={data} {columns} rowKey={(r) => r.key} dense>
-          {#snippet cell(row, col)}{col.key === 'bucket' ? row.label : fmt.money(Object.values(row.values).reduce((a, b) => a + b, 0))}{/snippet}
-        </DataTable>
-      {/snippet}
-    </ChartCard>
-  {:else}
+{#if usage.error && !usage.data}
+  <Banner tone="warning" title={t('common.error_title')} body={describeError(usage.error)}>
+    {#snippet action()}<Button icon="refresh" onclick={() => usage.refetch()}>{t('common.retry')}</Button>{/snippet}
+  </Banner>
+{:else if !usage.data || !total}
+  <div class="stack" aria-busy="true">
+    <Skeleton height="1.3rem" width="min(640px, 100%)" lines={2} />
+    <Card><Skeleton height="80px" /></Card>
     <Card><Skeleton height="260px" /></Card>
-  {/if}
-
-  <Card title={t('pages.usage.breakdown')} refreshing={breakdown.refreshing}>
-    {#snippet actions()}
-      <Select label={t('pages.usage.by')} hideLabel size="sm" bind:value={by} options={dims.map((d) => ({ value: d, label: tk(`pages.usage.dims.${d}`) }))} />
-    {/snippet}
-    {#if breakdown.data}
-      <p class="conf"><ConfidenceBadge confidence={breakdown.data.confidence} /></p>
-      <ShareBars
-        label={t('pages.usage.breakdown')}
-        shareFormat={(s) => fmt.ratio(s)}
-        rows={breakdown.data.rows.slice(0, 12).map((r) => ({
-          key: r.key,
-          label: by === 'model' ? modelLabel(r.label) : r.label || t('common.none'),
-          value: fmt.money(r.usage.cost_usd),
-          share: r.share,
-          color: by === 'model' ? modelColor(r.key) : undefined,
-        }))}
-      />
-    {:else}
-      <Skeleton lines={5} />
-    {/if}
-  </Card>
-  <div class="two">
-    {#if heat.data}
-      {@const cells = heat.data.cells.filter((c) => c.cost_usd > 0)}
-      <ChartCard title={t('pages.usage.when')} subtitle={t('pages.usage.when_sub')} refreshing={heat.refreshing}>
-        {#snippet note()}<ConfidenceBadge confidence="lower_bound" />{/snippet}
-        {#snippet chart()}
-          <HourHeatmap cells={heat.data?.cells ?? []} label={t('pages.usage.when')} format={(v) => fmt.money(v)} weekStart={app.settings?.week_start ?? 0} />
-        {/snippet}
-        {#snippet table()}
-          <DataTable caption={t('pages.usage.when')} rows={cells} columns={heatColumns} rowKey={(c) => `${c.dow}-${c.hour}`} bind:sortKey={heatSort} dense>
-            {#snippet cell(c, col)}
-              {#if col.key === 'day'}{tk(`chart.weekday_short.${DAY_KEYS[c.dow]}`)}{:else if col.key === 'hour'}{String(c.hour).padStart(2, '0')}:00{:else}{fmt.money(c.cost_usd)}{/if}
-            {/snippet}
-          </DataTable>
-        {/snippet}
-      </ChartCard>
-    {:else}<Card><Skeleton height="160px" /></Card>{/if}
-    {#if year.data}
-      {@const days = year.data.days.filter((d) => d.cost_usd > 0)}
-      <ChartCard title={t('pages.usage.year')} subtitle={t('pages.usage.year_sub')} refreshing={year.refreshing}>
-        {#snippet note()}<ConfidenceBadge confidence="lower_bound" />{/snippet}
-        {#snippet chart()}
-          <CalendarHeatmap days={year.data?.days ?? []} label={t('pages.usage.year')} format={(v) => fmt.money(v)} weekStart={app.settings?.week_start ?? 0} />
-        {/snippet}
-        {#snippet table()}
-          <DataTable caption={t('pages.usage.year')} rows={days} columns={dayColumns} rowKey={(d) => d.date} bind:sortKey={daySort} dense>
-            {#snippet cell(d, col)}{col.key === 'date' ? d.date : fmt.money(d.cost_usd)}{/snippet}
-          </DataTable>
-        {/snippet}
-      </ChartCard>
-    {:else}<Card><Skeleton height="120px" /></Card>{/if}
   </div>
-  <p class="preview">{t('pages.preview')}</p>
-</div>
+{:else}
+  <Answer confidence={usage.data.confidence} refreshing={usage.refreshing}>
+    {#if total.requests === 0}
+      {t('pages.usage.answer_empty', dates)}
+    {:else}
+      <Rich text={t('pages.usage.answer_spent', { ...dates, money: strong(fmt.money(total.cost_usd)) })} />
+      {#if delta !== null}
+        {#if Math.abs(delta) < 2}{t('pages.usage.answer_flat')}{:else}<Rich text={t(delta > 0 ? 'pages.usage.answer_up' : 'pages.usage.answer_down', { pct: strong(fmt.pct(Math.abs(delta))) })} />{/if}
+      {/if}
+      {#if topModel && !f.model}<Rich text={t('pages.usage.answer_model', { model: strong(modelLabel(topModel.key)), share: fmt.ratio(topModel.share) })} />{/if}
+      {#if topProject && !f.project}<Rich text={t('pages.usage.answer_project', { project: strong(topProject.label), money: fmt.money(topProject.usage.cost_usd) })} />{/if}
+      {#if total.unpriced_requests}{tn('confidence.unpriced', total.unpriced_requests)}.{/if}
+      {#if summary}<span class="filtered">{t('pages.usage.answer_filtered', { filters: summary })}</span>{/if}
+    {/if}
+  </Answer>
+
+  {#if total.requests === 0}
+    <Card>
+      <EmptyState icon="usage" title={t('pages.usage.empty_title')} body={active.length ? t('pages.usage.empty_filtered') : t('pages.usage.empty_body')}>
+        {#snippet action()}
+          {#if active.length}<Button onclick={clear}>{t('pages.usage.filters.clear')}</Button>{/if}
+        {/snippet}
+      </EmptyState>
+    </Card>
+  {:else}
+    <div class="stack">
+      <FigureStrip label={t('pages.usage.title')} refreshing={usage.refreshing}>
+        <Stat label={t('pages.usage.stat.cost')} {delta} reference={t('pages.usage.ref_prev')} meta={tn('units.requests', total.requests)}>
+          {#snippet value()}<Money usd={total.cost_usd} confidence={usage.data?.confidence ?? 'lower_bound'} unpriced={total.unpriced_requests} size="lg" />{/snippet}
+        </Stat>
+        <Stat label={t('pages.usage.stat.per_day')} meta={tn('pages.usage.days', days)}>
+          {#snippet value()}<Money usd={total.cost_usd / days} confidence={usage.data?.confidence ?? 'lower_bound'} size="lg" badge="seal" />{/snippet}
+        </Stat>
+        <Figure label={t('pages.usage.stat.tokens')} help={t('pages.usage.stat.tokens_help')} value={fmt.compact(tokens)} meta={t('pages.usage.tokens_split', { read: fmt.compact(total.tokens.cache_read), out: fmt.compact(total.tokens.output) })} />
+        <Figure label={t('pages.usage.stat.cache')} help={t('pages.usage.stat.cache_help')} value={cacheRatio === null ? t('common.unknown') : fmt.ratio(cacheRatio)} meta={t('pages.usage.cache_meta')} />
+      </FigureStrip>
+
+      <OverTime report={usage.data} group={f.group} {days} refreshing={usage.refreshing} />
+
+      {#each [breakdown, heat, year] as q, i (i)}
+        {#if q.error && !q.refreshing}
+          <Banner tone="warning" title={t('common.error_title')} body={describeError(q.error)}>
+            {#snippet action()}<Button size="sm" icon="refresh" onclick={() => q.refetch()}>{t('common.retry')}</Button>{/snippet}
+          </Banner>
+        {/if}
+      {/each}
+
+      <div class="pair">
+        <BreakdownCard data={breakdown.data} bind:by={f.by} {linkFor} refreshing={breakdown.refreshing} />
+        <Heatmaps only="hour" heat={heat.data} year={year.data} weekStart={app.settings?.week_start ?? 0} heatRefreshing={heat.refreshing} />
+      </div>
+
+      <Compare filtered={active.length > 0} />
+
+      <Heatmaps only="year" heat={heat.data} year={year.data} weekStart={app.settings?.week_start ?? 0} yearRefreshing={year.refreshing} />
+    </div>
+  {/if}
+{/if}
+
+<ExportDialog bind:open={exportOpen} filters={f} {summary} />
 
 <style>
   .stack {
@@ -154,26 +216,29 @@
     flex-direction: column;
     gap: var(--sp-5);
   }
-  .two {
+  .selects {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .pair {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
     gap: var(--sp-5);
+    align-items: start;
   }
-  .conf {
-    margin-bottom: var(--sp-3);
+  .filtered {
+    color: var(--ink-3);
   }
-  .chip {
+  @media (max-width: 1100px) {
+    .pair {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .with-help {
     display: inline-flex;
     align-items: center;
-    min-height: 30px;
-    padding: 0 var(--sp-3);
-    border-radius: var(--r-pill);
-    background: var(--accent-soft);
-    font-size: var(--fs-sm);
-    font-weight: var(--fw-medium);
-  }
-  .preview {
-    color: var(--ink-3);
-    font-size: var(--fs-sm);
+    gap: 2px;
   }
 </style>
