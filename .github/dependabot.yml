@@ -17,7 +17,11 @@ updates:
       npm-minor:
         update-types: [minor, patch]
     ignore:
+      # D-005 in docs/decisions.md: @types/node stays on the Node major CI uses (NODE_VERSION in ci.yml).
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # D-004 in docs/decisions.md: svelte-check supports only TypeScript 5 and 6.
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
