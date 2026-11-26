@@ -5,9 +5,8 @@
 # against SHA256SUMS and installs the kanjo binary into ~/.local/bin. No sudo,
 # no changes outside the install directory. SHA256SUMS itself is checked
 # against its Sigstore signature when cosign is installed (the certificate must
-# name this repository's release workflow and tag), and against its minisign
-# signature when minisign is installed and a public key is set below. A failed
-# check stops the installer; a skipped one is reported with the reason.
+# name this repository's release workflow and tag). A failed check stops the
+# installer; a skipped one is reported with the reason.
 #
 # Run it straight from the latest release of the repository in REPO_URL below:
 #
@@ -28,15 +27,12 @@
 #                       a SHA256SUMS file next to it is used for verification when present
 #   --sums <file>       SHA256SUMS to verify an offline archive against
 #   --no-verify         offline mode only: install an archive that has no SHA256SUMS
-#   --skip-signature    do not run cosign or minisign (SHA-256 is still checked), for
+#   --skip-signature    do not run cosign (SHA-256 is still checked), for
 #                       machines where cosign is installed but cannot reach Sigstore
 #   --help
 set -eu
 
 REPO_URL="https://github.com/Kyotu-Technology/kanjo"
-# Minisign public key of the release signer (the base64 line of minisign.pub).
-# Empty until the project publishes its key; signature checks are skipped then.
-MINISIGN_PUBKEY="${KANJO_MINISIGN_PUBKEY:-}"
 # Releases are signed by .github/workflows/release.yml with a GitHub OIDC token.
 COSIGN_ISSUER="https://token.actions.githubusercontent.com"
 TARGETS="x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin"
@@ -59,7 +55,7 @@ Usage: install.sh [--version <x.y.z>] [--dir <path>] [--archive <file> [--sums <
                       a SHA256SUMS file next to it is used for verification when present
   --sums <file>       SHA256SUMS to verify an offline archive against
   --no-verify         offline mode only: install an archive that has no SHA256SUMS
-  --skip-signature    do not run cosign or minisign (SHA-256 is still checked), for
+  --skip-signature    do not run cosign (SHA-256 is still checked), for
                       machines where cosign is installed but cannot reach Sigstore
 EOF
 }
@@ -179,31 +175,10 @@ verify_cosign() {
 	fi
 }
 
-# $1 = SHA256SUMS, $2 = SHA256SUMS.minisig (may be missing)
-verify_minisign() {
-	if [ "$skip_signature" = 1 ]; then
-		minisign_status="skipped (--skip-signature)"
-		return 0
-	fi
-	if [ -z "$MINISIGN_PUBKEY" ]; then
-		minisign_status="skipped (no minisign public key is configured in this installer yet)"
-		return 0
-	fi
-	if ! have minisign; then
-		minisign_status="skipped (minisign is not installed)"
-		return 0
-	fi
-	[ -f "$2" ] || die "minisign is installed and a public key is configured, but there is no SHA256SUMS.minisig to check"
-	minisign -Vm "$1" -x "$2" -P "$MINISIGN_PUBKEY" >/dev/null || die "minisign signature check failed; do not install this download"
-	minisign_status="verified"
-	signed=1
-}
-
 report_verification() {
 	say "verification:"
 	say "  SHA-256 checksum: $sha_status"
 	say "  cosign signature: $cosign_status"
-	say "  minisign signature: $minisign_status"
 	if [ "$signed" = 0 ]; then
 		say "WARNING: no signature was verified. The checksum shows that the archive matches SHA256SUMS from the same source, not that the Kanjo release workflow built it. Install cosign and run the installer again, or verify the download by hand as described in docs/release.md."
 	fi
@@ -258,7 +233,6 @@ main() {
 
 	sha_status="skipped"
 	cosign_status="skipped"
-	minisign_status="skipped"
 	signed=0
 
 	tmp=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-install.XXXXXX")
@@ -286,10 +260,8 @@ main() {
 		if [ -n "$sums" ]; then
 			[ -f "$sums" ] || die "SHA256SUMS not found: $sums"
 			cp "$sums" "$tmp/SHA256SUMS"
-			if [ -f "$sums.minisig" ]; then cp "$sums.minisig" "$tmp/SHA256SUMS.minisig"; fi
 			if [ -f "$sums.sigstore.json" ]; then cp "$sums.sigstore.json" "$tmp/SHA256SUMS.sigstore.json"; fi
 			verify_cosign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sigstore.json"
-			verify_minisign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.minisig"
 			verify_sha256 "$tmp/$name" "$tmp/SHA256SUMS"
 			report_verification
 		elif [ "$no_verify" = 1 ]; then
@@ -309,11 +281,7 @@ main() {
 			fetch "$base/SHA256SUMS.sigstore.json" "$tmp/SHA256SUMS.sigstore.json" ||
 				die "cosign is installed but SHA256SUMS.sigstore.json could not be downloaded from the release, so the signature cannot be checked"
 		fi
-		if [ "$skip_signature" = 0 ] && have minisign && [ -n "$MINISIGN_PUBKEY" ]; then
-			fetch "$base/SHA256SUMS.minisig" "$tmp/SHA256SUMS.minisig" || die "could not download SHA256SUMS.minisig"
-		fi
 		verify_cosign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sigstore.json"
-		verify_minisign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.minisig"
 		verify_sha256 "$tmp/$name" "$tmp/SHA256SUMS"
 		report_verification
 	fi

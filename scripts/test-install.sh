@@ -1,6 +1,6 @@
 #!/bin/sh
 # Tests install/install.sh in a temporary directory, offline and online, with
-# stub curl, cosign and minisign on a PATH that contains nothing else from the
+# stub curl and cosign on a PATH that contains nothing else from the
 # machine except basic tools, both as a file and fed to sh through a pipe the
 # way "curl ... | sh" does, including downloads cut off part way. Never touches
 # the real HOME.
@@ -26,20 +26,21 @@ Darwin/x86_64) TARGET=x86_64-apple-darwin ;;
 	;;
 esac
 NAME="kanjo-$VERSION-$TARGET"
+# release-package.sh roots every archive at kanjo-<target>/, without the version.
+ROOT="kanjo-$TARGET"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-install-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
-mkdir -p "$WORK/rel/$NAME" "$WORK/sys" "$WORK/stubs" "$WORK/home"
-printf '#!/bin/sh\necho "kanjo %s (test)"\n' "$VERSION" >"$WORK/rel/$NAME/kanjo"
-chmod 0755 "$WORK/rel/$NAME/kanjo"
-(cd "$WORK/rel" && tar -czf "$NAME.tar.gz" "$NAME" && rm -rf "$NAME")
+mkdir -p "$WORK/rel/$ROOT" "$WORK/sys" "$WORK/stubs" "$WORK/home"
+printf '#!/bin/sh\necho "kanjo %s (test)"\n' "$VERSION" >"$WORK/rel/$ROOT/kanjo"
+chmod 0755 "$WORK/rel/$ROOT/kanjo"
+(cd "$WORK/rel" && tar -czf "$NAME.tar.gz" "$ROOT" && rm -rf "$ROOT")
 sum() {
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{ print $1 }'; else shasum -a 256 "$1" | awk '{ print $1 }'; fi
 }
 printf '%s  %s\n' "$(sum "$WORK/rel/$NAME.tar.gz")" "$NAME.tar.gz" >"$WORK/rel/SHA256SUMS"
 echo '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}' >"$WORK/rel/SHA256SUMS.sigstore.json"
-echo 'untrusted comment: test' >"$WORK/rel/SHA256SUMS.minisig"
 
 for tool in sh awk tar gzip sha256sum shasum openssl mktemp find cp mv chmod mkdir rm dirname head cat uname sed grep ldd sysctl tr wc sort date env; do
 	p=$(command -v "$tool" 2>/dev/null) || continue
@@ -76,12 +77,7 @@ printf '%s\n' "$*" >>"$STUB_LOG/cosign"
 if [ "${STUB_COSIGN_EXIT:-0}" = 0 ]; then echo "Verified OK" >&2; else echo "Error: none of the expected identities matched" >&2; fi
 exit "${STUB_COSIGN_EXIT:-0}"
 EOF
-cat >"$WORK/stubs/minisign" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$*" >>"$STUB_LOG/minisign"
-exit "${STUB_MINISIGN_EXIT:-0}"
-EOF
-chmod 0755 "$WORK/stubs/curl" "$WORK/stubs/cosign" "$WORK/stubs/minisign"
+chmod 0755 "$WORK/stubs/curl" "$WORK/stubs/cosign"
 
 failures=0
 n=0
@@ -108,13 +104,12 @@ run() {
 	out=$(env -i HOME="$WORK/home" TMPDIR="$case_dir" PATH="${EXTRA_PATH:+$EXTRA_PATH:}$case_dir/path:$WORK/sys" \
 		STUB_LOG="$case_dir/log" STUB_REL="$WORK/rel" STUB_BASE="$URL/releases/download/v$VERSION" \
 		STUB_LATEST="$URL/releases/tag/v$VERSION" STUB_COSIGN_EXIT="${COSIGN_EXIT:-0}" \
-		STUB_COSIGN_VERSION="${COSIGN_VERSION:-v3.1.5}" STUB_MINISIGN_EXIT="${MINISIGN_EXIT:-0}" \
-		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$@" <"$feed" 2>&1)
+		STUB_COSIGN_VERSION="${COSIGN_VERSION:-v3.1.5}" sh "$@" <"$feed" 2>&1)
 	code=$?
 	set -e
 	# The per-case settings are given as assignments in front of the call. bash 3.2
 	# in POSIX mode (the /bin/sh of macOS) keeps them after the function returns.
-	unset COSIGN_EXIT COSIGN_VERSION MINISIGN_EXIT PUBKEY EXTRA_PATH PIPE
+	unset COSIGN_EXIT COSIGN_VERSION EXTRA_PATH PIPE
 }
 fail() {
 	failures=$((failures + 1))
@@ -136,6 +131,20 @@ expect_installed
 expect_out "SHA-256 checksum: verified"
 expect_out "cosign signature: skipped (cosign is not installed)"
 expect_out "WARNING: no signature was verified"
+expect_no_out "minisign"
+[ "$(cat "$dir/kanjo")" = "$(tar -xzOf "$ARCHIVE" "$ROOT/kanjo")" ] || fail "the installed kanjo is not $ROOT/kanjo from the archive"
+
+# The v0.1.0 archives are rooted at kanjo-<version>-<target>/.
+mkdir -p "$WORK/old/$NAME"
+printf '#!/bin/sh\necho "kanjo %s (old layout)"\n' "$VERSION" >"$WORK/old/$NAME/kanjo"
+chmod 0755 "$WORK/old/$NAME/kanjo"
+(cd "$WORK/old" && tar -czf "$NAME.tar.gz" "$NAME" && rm -rf "$NAME")
+printf '%s  %s\n' "$(sum "$WORK/old/$NAME.tar.gz")" "$NAME.tar.gz" >"$WORK/old/SHA256SUMS"
+run "offline, archive of the v0.1.0 layout" "" --archive "$WORK/old/$NAME.tar.gz"
+expect_exit 0
+expect_installed
+expect_out "SHA-256 checksum: verified"
+[ "$(cat "$dir/kanjo")" = "$(tar -xzOf "$WORK/old/$NAME.tar.gz" "$NAME/kanjo")" ] || fail "the installed kanjo is not $NAME/kanjo from the v0.1.0-layout archive"
 
 run "offline, cosign verifies" "cosign" --archive "$ARCHIVE"
 expect_exit 0
@@ -215,26 +224,6 @@ mv "$WORK/rel-nobundle/SHA256SUMS.sigstore.json" "$WORK/rel/"
 COSIGN_EXIT=1 run "online, cosign rejects" "curl cosign" --version "$VERSION"
 expect_exit 1
 expect_not_installed
-
-PUBKEY=RWtestkey run "minisign verifies" "curl minisign" --version "$VERSION"
-expect_exit 0
-expect_installed
-expect_out "minisign signature: verified"
-expect_log minisign "-P RWtestkey"
-
-PUBKEY=RWtestkey MINISIGN_EXIT=1 run "minisign rejects" "curl minisign" --version "$VERSION"
-expect_exit 1
-expect_not_installed
-expect_out "minisign signature check failed"
-
-PUBKEY=RWtestkey run "minisign key but no minisign" "curl" --version "$VERSION"
-expect_exit 0
-expect_out "minisign signature: skipped (minisign is not installed)"
-
-run "no minisign key" "curl minisign" --version "$VERSION"
-expect_exit 0
-expect_out "minisign signature: skipped (no minisign public key is configured"
-expect_no_log minisign
 
 mkdir -p "$WORK/tampered"
 cp "$ARCHIVE" "$WORK/rel/SHA256SUMS" "$WORK/rel/SHA256SUMS.sigstore.json" "$WORK/tampered/"

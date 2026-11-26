@@ -1,5 +1,5 @@
-# Tests install/install.ps1 in offline mode with stub cosign and minisign
-# commands, in a temporary directory, with -NoPathUpdate so the user PATH is
+# Tests install/install.ps1 in offline mode with a stub cosign command, in a
+# temporary directory, with -NoPathUpdate so the user PATH is
 # never changed. Also runs it the way "irm ... | iex" and the script block form
 # do, with stub download commands, in a child session that checks that nothing
 # of the installer is left behind in it and that it keeps running after an
@@ -17,6 +17,8 @@ $onWindows = [IO.Path]::DirectorySeparatorChar -eq '\'
 $sep = [IO.Path]::PathSeparator
 $version = '9.9.9'
 $name = "kanjo-$version-x86_64-pc-windows-msvc"
+# release-package.sh roots every archive at kanjo-<target>/, without the version.
+$root = 'kanjo-x86_64-pc-windows-msvc'
 $url = 'https://github.com/Kyotu-Technology/kanjo'
 $identity = "$url/.github/workflows/release.yml@refs/tags/v$version"
 $issuer = 'https://token.actions.githubusercontent.com'
@@ -25,17 +27,16 @@ if (-not $env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE = 'AMD64' }
 $work = Join-Path ([IO.Path]::GetTempPath()) ('kanjo-install-test-' + [guid]::NewGuid().ToString('N'))
 $rel = Join-Path $work 'rel'
 $stubs = Join-Path $work 'stubs'
-New-Item -ItemType Directory -Path (Join-Path $rel $name), $stubs | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $rel $root), $stubs | Out-Null
 
-Set-Content -LiteralPath (Join-Path (Join-Path $rel $name) 'kanjo.exe') -Value 'not a real binary'
+Set-Content -LiteralPath (Join-Path (Join-Path $rel $root) 'kanjo.exe') -Value 'not a real binary'
 $zip = Join-Path $rel "$name.zip"
-Compress-Archive -Path (Join-Path $rel $name) -DestinationPath $zip
-Remove-Item -LiteralPath (Join-Path $rel $name) -Recurse
+Compress-Archive -Path (Join-Path $rel $root) -DestinationPath $zip
+Remove-Item -LiteralPath (Join-Path $rel $root) -Recurse
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 $sums = Join-Path $rel 'SHA256SUMS'
 [IO.File]::WriteAllText($sums, "$hash  $name.zip" + [char]10)
 Set-Content -LiteralPath "$sums.sigstore.json" -Value '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}'
-Set-Content -LiteralPath "$sums.minisig" -Value 'untrusted comment: test'
 
 if ($onWindows) {
     Set-Content -LiteralPath (Join-Path $stubs 'cosign.cmd') -Encoding ascii -Value @(
@@ -48,11 +49,6 @@ if ($onWindows) {
         'if "%STUB_COSIGN_EXIT%"=="0" (echo Verified OK 1>&2) else (echo Error: none of the expected identities matched 1>&2)'
         'exit /b %STUB_COSIGN_EXIT%'
     )
-    Set-Content -LiteralPath (Join-Path $stubs 'minisign.cmd') -Encoding ascii -Value @(
-        '@echo off'
-        'echo %*>>"%STUB_LOG%\minisign"'
-        'exit /b %STUB_MINISIGN_EXIT%'
-    )
 } else {
     Set-Content -LiteralPath (Join-Path $stubs 'cosign') -Encoding ascii -Value @(
         '#!/bin/sh'
@@ -61,12 +57,7 @@ if ($onWindows) {
         'if [ "$STUB_COSIGN_EXIT" = 0 ]; then echo "Verified OK" >&2; else echo "Error: none of the expected identities matched" >&2; fi'
         'exit "$STUB_COSIGN_EXIT"'
     )
-    Set-Content -LiteralPath (Join-Path $stubs 'minisign') -Encoding ascii -Value @(
-        '#!/bin/sh'
-        'printf "%s\n" "$*" >>"$STUB_LOG/minisign"'
-        'exit "$STUB_MINISIGN_EXIT"'
-    )
-    & chmod 0755 (Join-Path $stubs 'cosign') (Join-Path $stubs 'minisign')
+    & chmod 0755 (Join-Path $stubs 'cosign')
 }
 
 # Runs the installer text inside this session, as "irm | iex" (-Mode iex) or as
@@ -146,7 +137,7 @@ function Invoke-Case([string]$Label, [string[]]$Tools, [hashtable]$Env, [string[
     }
     if (-not $onWindows) { Get-ChildItem -LiteralPath $path | ForEach-Object { & chmod 0755 $_.FullName } }
     $vars = @{
-        STUB_LOG = $log; STUB_COSIGN_EXIT = '0'; STUB_COSIGN_VERSION = 'v3.1.5'; STUB_MINISIGN_EXIT = '0'; KANJO_MINISIGN_PUBKEY = ''
+        STUB_LOG = $log; STUB_COSIGN_EXIT = '0'; STUB_COSIGN_VERSION = 'v3.1.5'
         STUB_REL = $rel; STUB_BASE = "$url/releases/download/v$version"; STUB_LATEST_TAG = "v$version"
     }
     if ($Env) { foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] } }
@@ -195,6 +186,7 @@ try {
         Expect-Out $r 'SHA-256 checksum: verified'
         Expect-Out $r 'cosign signature: skipped (cosign is not installed)'
         Expect-Out $r 'WARNING: no signature was verified'
+        Expect-NoOut $r 'minisign'
     }
 
     $r = Invoke-Case 'cosign verifies' @('cosign') $null @('-Archive', $zip)
@@ -254,20 +246,21 @@ try {
     Expect-Installed $r
     Expect-NoLog $r 'cosign'
 
-    $r = Invoke-Case 'minisign verifies' @('minisign') @{ KANJO_MINISIGN_PUBKEY = 'RWtestkey' } @('-Archive', $zip)
+    # The v0.1.0 archives are rooted at kanjo-<version>-<target>/.
+    $old = Join-Path $work 'oldlayout'
+    New-Item -ItemType Directory -Path (Join-Path $old $name) | Out-Null
+    Set-Content -LiteralPath (Join-Path (Join-Path $old $name) 'kanjo.exe') -Value 'old layout binary'
+    $oldZip = Join-Path $old "$name.zip"
+    Compress-Archive -Path (Join-Path $old $name) -DestinationPath $oldZip
+    Remove-Item -LiteralPath (Join-Path $old $name) -Recurse
+    $oldHash = (Get-FileHash -LiteralPath $oldZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $old 'SHA256SUMS'), "$oldHash  $name.zip" + [char]10)
+    $r = Invoke-Case 'archive of the v0.1.0 layout' @() $null @('-Archive', $oldZip, '-SkipSignature')
     Expect-Exit $r 0
-    Expect-Out $r 'minisign signature: verified'
-    Expect-Log $r 'minisign' '-P RWtestkey'
-
-    $r = Invoke-Case 'minisign rejects' @('minisign') @{ KANJO_MINISIGN_PUBKEY = 'RWtestkey'; STUB_MINISIGN_EXIT = '1' } @('-Archive', $zip)
-    Expect-Exit $r 1
-    Expect-NotInstalled $r
-    Expect-Out $r 'minisign signature check failed'
-
-    $r = Invoke-Case 'no minisign key' @('minisign') $null @('-Archive', $zip)
-    Expect-Exit $r 0
-    Expect-Out $r 'minisign signature: skipped (no minisign public key is configured'
-    Expect-NoLog $r 'minisign'
+    Expect-Installed $r
+    Expect-Out $r 'SHA-256 checksum: verified'
+    $installed = Join-Path $r.Dir 'kanjo.exe'
+    if ((Test-Path -LiteralPath $installed) -and ((Get-Content -LiteralPath $installed -Raw).Trim() -ne 'old layout binary')) { Fail-Check $r 'the installed kanjo.exe is not the one from the v0.1.0-layout archive' }
 
     $tampered = Join-Path $work 'tampered'
     New-Item -ItemType Directory -Path $tampered | Out-Null

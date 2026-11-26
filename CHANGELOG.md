@@ -10,6 +10,11 @@ All notable changes to this project are documented in this file. The format foll
 - A verified Ultra account has no 5-hour limit, so with Ultra chosen in Settings the plan advice can suggest Max on the weekly peak alone, and Kanjo no longer estimates a 5-hour limit in the dashboard, the Limits page, `kanjo status` or `limits.estimate` of the API.
 - The plan advice moves Team seats between Standard and Premium, as it moves individual plans between Pro, Max and Ultra.
 - Under Homebrew, `kanjo up`, `kanjo service install` and the dashboard's connect step record the `<prefix>/bin/kanjo` link instead of the versioned Cellar path for the statusline, the hooks and the background service, so the recorded path does not point into a keg that `brew upgrade` and `brew cleanup` remove.
+- Each release archive now holds its files in `kanjo-<target>/` instead of `kanjo-<version>-<target>/`, so the binary's path inside an unpacked archive stays the same from one release to the next. The archive file names do not change, and both installers still install archives of either layout.
+
+### Removed
+
+- Releases are no longer prepared for a minisign signature. No release was ever signed with minisign; a release is verified with its cosign signature and build provenance attestations. The release workflow has no minisign step, the installers' verification summary has no minisign line, and the installers ignore `KANJO_MINISIGN_PUBKEY`.
 
 ## [0.1.0] - 2026-11-26
 

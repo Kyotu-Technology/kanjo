@@ -29,20 +29,10 @@ Size: M. Depends: K-068.
 Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-005, K-069).
 Done when: scripts/windows-vm-test.sh has run with the published MSVC zip and the reworked install.ps1, a winget install from a local manifest (written with komac or by hand) has run non-elevated and elevated with the recorded path noted, and docs/status.md states the results.
 
-### K-005 Release archives rooted at kanjo-<target>/
-Size: S. Depends: K-032.
-Why: the top directory of each archive carries the version, so the executable path WinGet records changes on every upgrade.
-Done when: scripts/release-package.sh writes kanjo-<target>/, the installer tests and docs/release.md match, and both installers still find the binary.
-
 ### K-069 Stable recorded path on Windows if the archive layout is not enough
 Size: S. Depends: K-032.
 Why: if the Windows session shows that the path kanjo up records still changes on winget upgrade, K-005 alone does not fix it.
 Done when: the recorded path is mapped to a stable one in Rust as K-004 does for Homebrew, with a test, or the session has shown it is not needed and the entry is deleted.
-
-### K-030 Remove the minisign path
-Size: S.
-Why: no minisign key was ever published, so both installers report that check as skipped; a release is verified through the cosign signature and the attestations (D-002).
-Done when: the minisign steps are gone from release.yml, both installers, their tests and the documentation, before the next tag.
 
 ### K-010 Homebrew tap content
 Size: M.
@@ -55,7 +45,7 @@ Why: the Homebrew channel needs its own public tap repository, outside this repo
 Done when: Kyotu-Technology/homebrew-tap is public, Actions may write its contents, a ruleset blocks force pushes and deletion, the update workflow has dry-run against v0.1.0, and after v0.2.0 (K-007) a real run has published the formula.
 
 ### K-007 Release v0.2.0 through a release candidate
-Size: S. Depends: K-004, K-005, K-030.
+Size: S.
 Why: v0.1.0 lacks the path fixes, so a channel built on it breaks on the first upgrade; v0.1.0 is not an immutable release because it was published before immutable releases were switched on.
 Done when: v0.2.0-rc.1 and v0.2.0 are prepared with release-prep and published, the candidate has exercised the new archive layout end to end, and the v0.2.0 release reports itself immutable.
 

@@ -11,7 +11,7 @@ Consequences: `deny.toml` bans the `lettre` SMTP client together with every HTTP
 ## D-002 Releases are signed with cosign keyless and carry attestations and SBOMs (2026-11-26)
 
 Context: a downloaded binary has to be traceable to this repository's release workflow without a long-lived signing key.
-Decision: the `sign` job of `.github/workflows/release.yml` signs `SHA256SUMS` with Sigstore cosign in keyless mode, and a GitHub build provenance attestation covers every archive, CycloneDX SBOM and installer; each target has its own SBOM.
+Decision: the `sign` job of `.github/workflows/release.yml` signs `SHA256SUMS` with Sigstore cosign in keyless mode, and a GitHub build provenance attestation covers every archive, CycloneDX SBOM and installer; each target has its own SBOM. No release is signed with minisign or any other long-lived key.
 Consequences: the installers check the archive against `SHA256SUMS` and, when cosign is installed, check the signature against the release workflow's identity; [release.md](release.md) shows how to verify a download by hand.
 
 ## D-003 No package-manager machinery in the release workflow or this repository (2026-11-26)

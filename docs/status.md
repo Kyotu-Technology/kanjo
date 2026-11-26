@@ -31,4 +31,3 @@ These are the limitations a user may run into:
 - Browsers installed as Snap or Flatpak packages may be unable to read the sign-in page in the data directory (or, for the demo, in the temporary directory). Then `kanjo open` and `kanjo up` print the address after 20 seconds. This has not been tested with a real sandboxed browser.
 - In `kanjo demo`, the first-run guide still offers a Connect step, which the demo server refuses.
 - There is no command to rotate the access token (see the [threat model](security/threat-model.md)).
-- The minisign key for releases has not been published, so the install scripts verify signatures only with cosign.

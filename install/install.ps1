@@ -8,9 +8,8 @@ against SHA256SUMS, installs kanjo.exe into %LOCALAPPDATA%\Programs\Kanjo and
 adds that directory to the user PATH. No administrator rights are needed.
 SHA256SUMS itself is checked against its Sigstore signature when cosign is
 installed (the certificate must name this repository's release workflow and
-tag), and against its minisign signature when minisign is installed and a
-public key is set below. A failed check stops the installer; a skipped one is
-reported with the reason.
+tag). A failed check stops the installer; a skipped one is reported with the
+reason.
 Run it straight from the latest release of the repository in $RepoUrl below:
 
   irm https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.ps1 | iex
@@ -48,7 +47,7 @@ SHA256SUMS file to verify an offline archive against.
 Offline mode only: install an archive that has no SHA256SUMS.
 
 .PARAMETER SkipSignature
-Do not run cosign or minisign (SHA-256 is still checked), for machines where
+Do not run cosign (SHA-256 is still checked), for machines where
 cosign is installed but cannot reach Sigstore.
 
 .PARAMETER NoPathUpdate
@@ -74,9 +73,6 @@ try {
         $ProgressPreference = 'SilentlyContinue'
 
         $RepoUrl = 'https://github.com/Kyotu-Technology/kanjo'
-        # Minisign public key of the release signer (the base64 line of minisign.pub).
-        # Empty until the project publishes its key; signature checks are skipped then.
-        $MinisignPubKey = if ($env:KANJO_MINISIGN_PUBKEY) { $env:KANJO_MINISIGN_PUBKEY } else { '' }
         # Releases are signed by .github/workflows/release.yml with a GitHub OIDC token.
         $CosignIssuer = 'https://token.actions.githubusercontent.com'
         $Target = 'x86_64-pc-windows-msvc'
@@ -117,7 +113,7 @@ try {
             $Status.Sha = 'verified'
         }
 
-        $Status = @{ Sha = 'skipped'; Cosign = 'skipped'; Minisign = 'skipped'; Signed = $false }
+        $Status = @{ Sha = 'skipped'; Cosign = 'skipped'; Signed = $false }
 
         # Windows PowerShell turns native stderr into errors when it is redirected, and
         # cosign reports on stderr, so run native tools with errors non-terminating.
@@ -153,26 +149,10 @@ try {
             $Status.Signed = $true
         }
 
-        function Test-Minisign([string]$SumsFile, [string]$SigFile) {
-            if ($SkipSignature) { $Status.Minisign = 'skipped (-SkipSignature)'; return }
-            if (-not $MinisignPubKey) { $Status.Minisign = 'skipped (no minisign public key is configured in this installer yet)'; return }
-            $minisign = Get-Command minisign -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $minisign) { $Status.Minisign = 'skipped (minisign is not installed)'; return }
-            if (-not (Test-Path -LiteralPath $SigFile)) { Fail 'minisign is installed and a public key is configured, but there is no SHA256SUMS.minisig to check' }
-            $result = Invoke-Native $minisign.Source @('-Vm', $SumsFile, '-x', $SigFile, '-P', $MinisignPubKey)
-            if ($result.Code -ne 0) {
-                foreach ($line in $result.Output) { Write-Host "  minisign: $line" }
-                Fail 'minisign signature check failed; do not install this download'
-            }
-            $Status.Minisign = 'verified'
-            $Status.Signed = $true
-        }
-
         function Write-Verification {
             Say 'verification:'
             Say "  SHA-256 checksum: $($Status.Sha)"
             Say "  cosign signature: $($Status.Cosign)"
-            Say "  minisign signature: $($Status.Minisign)"
             if (-not $Status.Signed) {
                 Say 'WARNING: no signature was verified. The checksum shows that the archive matches SHA256SUMS from the same source, not that the Kanjo release workflow built it. Install cosign and run the installer again, or verify the download by hand as described in docs/release.md.'
             }
@@ -242,12 +222,9 @@ try {
                     if (-not (Test-Path -LiteralPath $Sums -PathType Leaf)) { Fail "SHA256SUMS not found: $Sums" }
                     $sumsFile = Join-Path $tmp 'SHA256SUMS'
                     Copy-Item -LiteralPath $Sums -Destination $sumsFile
-                    $sig = "$Sums.minisig"
-                    if (Test-Path -LiteralPath $sig) { Copy-Item -LiteralPath $sig -Destination "$sumsFile.minisig" }
                     $bundle = "$Sums.sigstore.json"
                     if (Test-Path -LiteralPath $bundle) { Copy-Item -LiteralPath $bundle -Destination "$sumsFile.sigstore.json" }
                     Test-Cosign $sumsFile "$sumsFile.sigstore.json" $Version
-                    Test-Minisign $sumsFile "$sumsFile.minisig"
                     Test-Sha256 $zip $sumsFile
                     Write-Verification
                 } elseif ($NoVerify) {
@@ -271,11 +248,7 @@ try {
                         Fail 'cosign is installed but SHA256SUMS.sigstore.json could not be downloaded from the release, so the signature cannot be checked'
                     }
                 }
-                if (-not $SkipSignature -and $MinisignPubKey -and (Get-Command minisign -ErrorAction SilentlyContinue)) {
-                    Get-Download "$base/SHA256SUMS.minisig" "$sumsFile.minisig"
-                }
                 Test-Cosign $sumsFile "$sumsFile.sigstore.json" $Version
-                Test-Minisign $sumsFile "$sumsFile.minisig"
                 Test-Sha256 $zip $sumsFile
                 Write-Verification
             }
