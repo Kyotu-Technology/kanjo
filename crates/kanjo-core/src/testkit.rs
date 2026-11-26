@@ -4,6 +4,16 @@ use crate::model::{RequestRow, TokenCounts};
 use crate::pricing::PriceTable;
 use crate::store::{write, Store};
 
+/// A context in Europe/Warsaw (summer time from the last Sunday of March to
+/// the last Sunday of October). Falls back to the equivalent POSIX rule when
+/// the system has no time zone database.
+pub fn warsaw(now: i64) -> crate::Ctx {
+    let zone = jiff::tz::TimeZone::get("Europe/Warsaw")
+        .or_else(|_| jiff::tz::TimeZone::posix("CET-1CEST,M3.5.0,M10.5.0/3"))
+        .expect("Warsaw time zone");
+    crate::Ctx::with_zone(now, zone, 0)
+}
+
 pub struct TestStore {
     pub store: Store,
     pub dir: tempfile::TempDir,

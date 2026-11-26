@@ -1,6 +1,5 @@
 use crate::common::{Env, Filter, Keys, Src, REPORT_DAYS};
 use kanjo_core::api::{Project, ProjectPatch, Usage};
-use kanjo_core::time::DAY_MS;
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -50,7 +49,7 @@ pub fn update_project(store: &Store, ctx: &Ctx, id: i64, patch: &ProjectPatch) -
 fn load(c: &Connection, ctx: &Ctx, env: &Env, only: Option<i64>) -> Result<Vec<Project>> {
     let src = Src::new(c)?;
     let f = Filter { project: only, ..Filter::default() };
-    let from = ctx.day_start(ctx.now) - (REPORT_DAYS - 1) * DAY_MS;
+    let from = ctx.day_shift(ctx.now, -(REPORT_DAYS - 1));
     let mut recent: HashMap<i64, Usage> = HashMap::new();
     for r in src.fetch(from, ctx.now, &f, Keys { project: true, ..Keys::NONE })? {
         *recent.entry(r.project).or_default() += r.usage;

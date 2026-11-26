@@ -8,7 +8,6 @@ use kanjo_core::pricing::PriceTable;
 use kanjo_core::store::write;
 use kanjo_core::testkit::TestStore;
 use kanjo_core::time::{DAY_MS, HOUR_MS, MINUTE_MS};
-use kanjo_core::Ctx;
 use std::time::Instant;
 
 const NOW: i64 = 1_795_617_000_000;
@@ -92,7 +91,7 @@ fn time<T>(label: &str, f: impl Fn() -> T) -> std::time::Duration {
 #[ignore = "builds a 500k-request store; run in release with --ignored"]
 fn overview_on_a_year_of_requests() {
     let t = build();
-    let ctx = Ctx { now: NOW, tz_offset_min: 60, week_start: 0 };
+    let ctx = kanjo_core::testkit::warsaw(NOW);
     let q = kanjo_core::api::Query::default();
     let without = time("overview (no limit readings, estimate path)", || kanjo_analytics::overview(&t.store, &ctx).unwrap());
     t.store

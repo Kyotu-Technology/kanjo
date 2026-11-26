@@ -9,7 +9,6 @@ use kanjo_core::api::{
 use kanjo_core::model::TokenCounts;
 use kanjo_core::pricing::{self, PriceTable};
 use kanjo_core::settings::Settings;
-use kanjo_core::time::DAY_MS;
 use kanjo_core::{Ctx, Result, Store};
 use rusqlite::{params, Connection};
 use std::collections::BTreeMap;
@@ -369,7 +368,7 @@ fn anomalies(conn: &Connection, ctx: &Ctx, from: i64, redact: bool) -> Result<Ve
     let mut out = Vec::new();
     let first_day = ctx.day_start(from);
     let today = ctx.day_start(ctx.now);
-    let daily = detect::daily_costs(conn, ctx, first_day - SPIKE_LOOKBACK_DAYS * DAY_MS, today + DAY_MS)?;
+    let daily = detect::daily_costs(conn, ctx, ctx.day_shift(first_day, -SPIKE_LOOKBACK_DAYS), ctx.day_shift(today, 1))?;
     for (day, _) in daily.iter().filter(|(d, _)| *d >= first_day) {
         if let Some(s) = detect::cost_spike(&daily, *day) {
             out.push(Anomaly {

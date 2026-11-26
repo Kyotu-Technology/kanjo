@@ -100,14 +100,34 @@ fn a_utc_offset_change_does_not_repeat_a_budget_alert_in_the_same_period() {
     let t = store();
     let p = t.project("shop");
     configure(&t, |s| s.currency = kanjo_core::settings::CurrencySettings { code: "EUR".into(), usd_rate: 0.5 });
-    let summer = kanjo_core::Ctx { now: NOW - 37 * DAY_MS + 2 * HOUR, tz_offset_min: 120, week_start: 0 };
-    let winter = kanjo_core::Ctx { now: NOW - 29 * DAY_MS + 2 * HOUR, tz_offset_min: 60, week_start: 0 };
+    let summer = kanjo_core::Ctx { now: NOW - 37 * DAY_MS + 2 * HOUR, tz_offset_min: 120, week_start: 0, zone: None };
+    let winter = kanjo_core::Ctx { now: NOW - 29 * DAY_MS + 2 * HOUR, tz_offset_min: 60, week_start: 0, zone: None };
     spend(&t, p, "s", summer.now - 2 * HOUR, 20.0);
     create_budget(&t.store, &summer, &input(BudgetScope::Global, None, BudgetPeriod::Month, 10.0)).unwrap();
     let a = evaluate(&t.store, &summer).unwrap();
     assert_eq!(of(&a, AlertKind::BudgetExceeded).len(), 1);
     assert_eq!(a[0].message, "Spent €10.00, over the €5.00 monthly budget (200%).");
     assert!(evaluate(&t.store, &winter).unwrap().is_empty(), "the October budget already fired");
+}
+
+#[test]
+fn budget_periods_follow_daylight_saving_changes() {
+    let t = store();
+    let p = t.project("shop");
+    // Sunday 2026-10-25, the day Warsaw leaves summer time: it runs from 00:00 +2 to 24:00 +1, 25 hours.
+    let autumn = kanjo_core::testkit::warsaw(NOW - 32 * DAY_MS + 2 * HOUR);
+    let day_start = NOW - 33 * DAY_MS + 12 * HOUR;
+    spend(&t, p, "early", day_start + 30 * MIN, 4.0);
+    spend(&t, p, "before", day_start - 30 * MIN, 7.0);
+    let b = create_budget(&t.store, &autumn, &input(BudgetScope::Global, None, BudgetPeriod::Day, 10.0)).unwrap();
+    assert_eq!((b.period_start, b.period_end), (day_start, day_start + 25 * HOUR));
+    assert!((b.spent_usd - 4.0).abs() < 1e-9);
+
+    // The week of the spring change (Monday 23 March 00:00 +1 to Monday 30 March 00:00 +2) is an hour short.
+    let spring = kanjo_core::testkit::warsaw(NOW - 244 * DAY_MS + 2 * HOUR);
+    let week_start = NOW - 248 * DAY_MS - 11 * HOUR;
+    let w = create_budget(&t.store, &spring, &input(BudgetScope::Global, None, BudgetPeriod::Week, 10.0)).unwrap();
+    assert_eq!((w.period_start, w.period_end), (week_start, week_start + 7 * DAY_MS - HOUR));
 }
 
 #[test]

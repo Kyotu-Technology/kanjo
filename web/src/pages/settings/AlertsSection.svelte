@@ -5,6 +5,7 @@
   import Card from '../../lib/ui/Card.svelte';
   import Icon from '../../lib/ui/Icon.svelte';
   import Switch from '../../lib/ui/Switch.svelte';
+  import { app } from '../../lib/stores/app.svelte';
   import SaveStatus from './SaveStatus.svelte';
   import { Saver } from './saver.svelte';
 
@@ -122,7 +123,13 @@
   <h3 class="subhead">{t('settings.alerts.delivery')}</h3>
   <div class="rows">
     <Switch checked={a.desktop_notifications} label={t('settings.alerts.desktop')} description={t('settings.alerts.desktop_help')} onchange={(v) => patch({ desktop_notifications: v })} />
-    <Switch checked={a.terminal_bell} label={t('settings.alerts.bell')} description={t('settings.alerts.bell_help')} onchange={(v) => patch({ terminal_bell: v })} />
+    <Switch
+      checked={a.terminal_bell}
+      label={t('settings.alerts.bell')}
+      description={app.bellAvailable ? t('settings.alerts.bell_help') : t('settings.alerts.bell_unavailable')}
+      disabled={!app.bellAvailable}
+      onchange={(v) => patch({ terminal_bell: v })}
+    />
   </div>
   <p class="note in-app"><Icon name="alerts" size={16} /><span>{t('settings.alerts.in_app')}</span></p>
 </Card>

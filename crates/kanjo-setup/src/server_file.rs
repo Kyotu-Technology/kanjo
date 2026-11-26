@@ -189,9 +189,86 @@ fn remove_codes(dir: &Path, keep: impl Fn(&LoginCode) -> bool) {
     }
 }
 
-/// Removes every login code (a server does this when it starts).
+/// Removes every login code and launch page (a server does this when it starts).
 pub fn clear_login_codes(paths: &Paths) {
     remove_codes(&paths.login_dir(), |_| false);
+    if let Ok(entries) = std::fs::read_dir(paths.open_dir()) {
+        for e in entries.flatten() {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// How long a launch page may stay on disk when its code is never redeemed.
+pub const LAUNCH_PAGE_TTL: Duration = Duration::from_secs(20);
+
+/// The single-use login code a sign-in URL carries, if any.
+pub fn login_code_of(url: &str) -> Option<&str> {
+    url.rsplit_once("?token=").map(|(_, c)| c).filter(|c| is_code(c))
+}
+
+/// File name of the launch page for `code`: a one-way digest, so the path an
+/// opener shows on its command line does not give the code away.
+fn page_name(code: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("kanjo-launch-v1:{code}").as_bytes());
+    format!("{}.html", digest.iter().take(16).map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// Writes an owner-only HTML page that sends the browser on to `url`, which
+/// must carry a login code, and returns its path. A browser opener started
+/// with that path shows the page on its command line, never the code. Its
+/// name is derived from the code, so redeeming the code removes it.
+pub fn launch_page(paths: &Paths, url: &str) -> Result<PathBuf> {
+    let code = login_code_of(url).ok_or_else(|| Error::Invalid("the sign-in URL carries no login code".into()))?;
+    let dir = paths.open_dir();
+    create_private_dir(&dir)?;
+    let path = dir.join(page_name(code));
+    let _ = std::fs::remove_file(&path);
+    let target = html_escape(url);
+    let page = format!(
+        "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\">\
+         <meta http-equiv=\"refresh\" content=\"0;url={target}\"><title>Kanjo</title></head>\
+         <body><p><a href=\"{target}\">Open Kanjo</a></p></body></html>\n"
+    );
+    let mut f = create_private(&path)?;
+    f.write_all(page.as_bytes())?;
+    f.sync_all()?;
+    Ok(path)
+}
+
+/// Waits until the browser has redeemed `code` (its file in `login/` is gone)
+/// or `limit` has passed, then removes `page`. True when the code was redeemed.
+pub fn retire_launch_page(paths: &Paths, page: &Path, code: &str, limit: Duration) -> bool {
+    let file = paths.login_dir().join(code);
+    let deadline = std::time::Instant::now() + limit;
+    while file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = std::fs::remove_file(page);
+    !file.exists()
+}
+
+/// Removes the launch page of a login code that was just redeemed or refused.
+pub fn remove_launch_page(paths: &Paths, code: &str) {
+    if is_code(code) {
+        let _ = std::fs::remove_file(paths.open_dir().join(page_name(code)));
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Writes a single-use login code for `record` and returns the URL that signs
@@ -217,6 +294,7 @@ pub fn claim_login_code(paths: &Paths, instance: &str, given: &str, now: i64) ->
     if !is_code(given) {
         return false;
     }
+    remove_launch_page(paths, given);
     let path = paths.login_dir().join(given);
     let Ok(text) = std::fs::read_to_string(&path) else { return false };
     if std::fs::remove_file(&path).is_err() {

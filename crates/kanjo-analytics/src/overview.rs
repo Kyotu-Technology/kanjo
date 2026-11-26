@@ -4,7 +4,7 @@ use crate::limits::{limits_in, STALE_MS};
 use crate::reports::{buckets, group_rows, period_ranges, period_summary};
 use crate::sessions::{burn, load_sessions};
 use kanjo_core::api::{Confidence, DataStatus, Dimension, Granularity, Overview};
-use kanjo_core::time::{DAY_MS, HOUR_MS};
+use kanjo_core::time::HOUR_MS;
 use kanjo_core::{Ctx, Result, Store};
 use rusqlite::types::Value;
 use rusqlite::Connection;
@@ -19,7 +19,7 @@ pub fn overview(store: &Store, ctx: &Ctx) -> Result<Overview> {
         let src = Src::new(c)?;
         let none = Filter::default();
         let [today, week, month] = period_ranges(ctx);
-        let daily_range = Range { from: ctx.day_start(ctx.now) - (REPORT_DAYS - 1) * DAY_MS, to: ctx.now };
+        let daily_range = Range { from: ctx.day_shift(ctx.now, -(REPORT_DAYS - 1)), to: ctx.now };
         let rows = src.fetch(daily_range.from, daily_range.to, &none, Keys { hour: true, project: true, model: true, ..Keys::NONE })?;
         let hourly_range = Range { from: bucket_start(ctx, Granularity::Hour, ctx.now) - 23 * HOUR_MS, to: ctx.now };
         let recent: Vec<_> = rows.iter().filter(|r| r.hour >= hourly_range.from).cloned().collect();

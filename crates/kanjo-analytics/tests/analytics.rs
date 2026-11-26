@@ -18,7 +18,7 @@ const OPUS: &str = "claude-opus-5-5";
 const SONNET: &str = "claude-sonnet-5-5";
 
 fn ctx() -> Ctx {
-    Ctx { now: NOW, tz_offset_min: 60, week_start: 0 }
+    Ctx { now: NOW, tz_offset_min: 60, week_start: 0, zone: None }
 }
 
 /// Local wall-clock time (UTC+1) to epoch ms.
@@ -658,4 +658,70 @@ fn reports_survive_the_purge_of_request_rows() {
     let tools = an::breakdown(&fx.t.store, &ctx(), &Query { by: Some(Dimension::Tool), ..Query::default() }).unwrap();
     assert!(tools.rows.is_empty());
     assert!(an::session_detail(&fx.t.store, &ctx(), "s1").unwrap().unwrap().timeline.is_empty());
+}
+
+/// Warsaw wall-clock time to epoch ms, with the offset in force on that date in 2026.
+fn warsaw_local(mo: i8, d: i8, h: i8, mi: i8, offset_h: i64) -> i64 {
+    kanjo_core::time::utc_millis(jiff::civil::date(2026, mo, d).at(h, mi, 0, 0)) - offset_h * H
+}
+
+#[test]
+fn buckets_follow_daylight_saving_changes() {
+    let fx = Fx::new();
+    let p = fx.project("alpha");
+    let warsaw = kanjo_core::testkit::warsaw(NOW);
+    // Around the spring change (29 March, +1 -> +2).
+    fx.add(p, "a", warsaw_local(3, 28, 23, 30, 1), OPUS, 100, 10);
+    fx.add(p, "a", warsaw_local(3, 29, 23, 30, 2), OPUS, 100, 10);
+    fx.add(p, "a", warsaw_local(3, 30, 0, 30, 2), OPUS, 100, 10);
+    let q = Query { from: Some(warsaw_local(3, 28, 0, 0, 1)), to: Some(warsaw_local(3, 31, 0, 0, 2)), ..Query::default() };
+    let day = an::usage_report(&fx.t.store, &warsaw, &q).unwrap();
+    let labels: Vec<_> = day.buckets.iter().map(|b| (b.label.as_str(), b.usage.requests)).collect();
+    assert_eq!(labels, vec![("2026-03-28", 1), ("2026-03-29", 1), ("2026-03-30", 1)]);
+    assert_eq!(day.buckets[2].start, warsaw_local(3, 30, 0, 0, 2));
+    // The same range with the November offset fixed for the whole query moves the summer half past midnight to the day before.
+    let fixed = an::usage_report(&fx.t.store, &ctx(), &q).unwrap();
+    assert_eq!(fixed.buckets.iter().map(|b| b.usage.requests).collect::<Vec<_>>(), vec![1, 2, 0]);
+
+    // Around the autumn change (25 October, +2 -> +1): the 25th lasts 25 hours.
+    fx.add(p, "b", warsaw_local(10, 25, 0, 30, 2), OPUS, 100, 10);
+    fx.add(p, "b", warsaw_local(10, 25, 23, 30, 1), OPUS, 100, 10);
+    fx.add(p, "b", warsaw_local(10, 26, 0, 30, 1), OPUS, 100, 10);
+    let q = Query { from: Some(warsaw_local(10, 25, 0, 0, 2)), to: Some(warsaw_local(10, 27, 0, 0, 1)), ..Query::default() };
+    let day = an::usage_report(&fx.t.store, &warsaw, &q).unwrap();
+    let labels: Vec<_> = day.buckets.iter().map(|b| (b.label.as_str(), b.usage.requests)).collect();
+    assert_eq!(labels, vec![("2026-10-25", 2), ("2026-10-26", 1)]);
+    assert_eq!(day.buckets[1].start - day.buckets[0].start, 25 * H);
+
+    // Month buckets start on local midnight in either season.
+    fx.add(p, "c", warsaw_local(10, 1, 0, 30, 2), OPUS, 100, 10);
+    let q = Query { from: Some(warsaw_local(9, 1, 0, 0, 2)), group: Some(Granularity::Month), ..Query::default() };
+    let month = an::usage_report(&fx.t.store, &warsaw, &q).unwrap();
+    let labels: Vec<_> = month.buckets.iter().map(|b| (b.label.as_str(), b.start, b.usage.requests)).collect();
+    assert_eq!(labels[1], ("2026-10", warsaw_local(10, 1, 0, 0, 2), 4));
+    assert_eq!(labels[2].1, warsaw_local(11, 1, 0, 0, 1));
+
+    // Heatmaps read the hour in the season of each request.
+    let q = Query { from: Some(warsaw_local(3, 29, 0, 0, 1)), to: Some(warsaw_local(3, 30, 0, 0, 2)), ..Query::default() };
+    let heat = an::heatmap(&fx.t.store, &warsaw, &q).unwrap();
+    let busy: Vec<_> = heat.cells.iter().filter(|c| c.requests > 0).map(|c| (c.dow, c.hour)).collect();
+    assert_eq!(busy, vec![(6, 23)]);
+    assert_eq!(heat.days.iter().map(|d| d.date.as_str()).collect::<Vec<_>>(), vec!["2026-03-29"]);
+}
+
+#[test]
+fn breakdown_by_query_source() {
+    let fx = Fx::new();
+    let p = fx.project("alpha");
+    for (i, source) in [Some("repl_main_thread"), Some("repl_main_thread"), Some("compact"), None].into_iter().enumerate() {
+        let mut r = fx.row(p, "s", NOW - (i as i64 + 1) * H, OPUS, 100, 10);
+        r.query_source = source.map(str::to_string);
+        fx.t.insert(&r);
+    }
+    let b = an::breakdown(&fx.t.store, &ctx(), &Query { by: Some(Dimension::QuerySource), ..Query::default() }).unwrap();
+    let rows: Vec<_> = b.rows.iter().map(|r| (r.key.as_str(), r.label.as_str(), r.usage.requests)).collect();
+    assert_eq!(rows, vec![("repl_main_thread", "repl_main_thread", 2), ("", "(none)", 1), ("compact", "compact", 1)]);
+    assert_eq!(b.total.requests, 4);
+    let csv = kanjo_analytics::export::breakdown_csv(&b);
+    assert!(csv.contains("query_source") && csv.contains("compact"), "{csv}");
 }

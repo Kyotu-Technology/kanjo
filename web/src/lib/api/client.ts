@@ -7,6 +7,7 @@ import type {
   Budget,
   BudgetInput,
   Comparison,
+  Health,
   Heatmap,
   HookInstallRequest,
   HookStatus,
@@ -116,7 +117,7 @@ export class ApiClient {
     return res;
   }
 
-  health = () => this.request<{ status: string; version: string }>('GET', 'health');
+  health = () => this.request<Health>('GET', 'health');
   overview = () => this.request<Overview>('GET', 'overview');
   usage = (q: QueryParams = {}) => this.request<UsageReport>('GET', 'usage', { query: q });
   breakdown = (q: QueryParams = {}) => this.request<Breakdown>('GET', 'breakdown', { query: q });

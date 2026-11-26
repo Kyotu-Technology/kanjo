@@ -72,6 +72,9 @@
       {#if app.mock}
         <Tip text={t('shell.mock_help')}><span class="mock"><Icon name="info" size={14} />{t('shell.mock')}</span></Tip>
       {/if}
+      {#if app.demo}
+        <Tip text={t('shell.demo_help')}><span class="mock"><Icon name="info" size={14} />{t('shell.demo')}</span></Tip>
+      {/if}
       <p class="tagline">{t('nav.tagline')}</p>
     </div>
   </aside>
@@ -90,6 +93,9 @@
       </button>
       <div class="spacer"></div>
       <div class="tools">
+        {#if app.demo}
+          <Tip text={t('shell.demo_help')}><span class="mock demo-pill"><Icon name="info" size={14} />{t('shell.demo')}</span></Tip>
+        {/if}
         <span class="live-wrap"><LiveIndicator /></span>
         <span class="live-compact"><LiveIndicator compact /></span>
         <a class="bell" href={href('/alerts')} aria-label={bellLabel} title={bellLabel}>
@@ -112,6 +118,7 @@
     {@render nav()}
     <div class="drawer-prefs"><PrefSwitches /></div>
     {#if app.mock}<p class="mock-line">{t('shell.mock_help')}</p>{/if}
+    {#if app.demo}<p class="mock-line">{t('shell.demo_help')}</p>{/if}
   </div>
 </Dialog>
 
@@ -334,6 +341,9 @@
   .drawer-prefs {
     padding-top: var(--sp-4);
     border-top: 1px solid var(--line);
+  }
+  .demo-pill {
+    white-space: nowrap;
   }
   .mock-line {
     color: var(--warning-ink);

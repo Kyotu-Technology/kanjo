@@ -84,6 +84,8 @@ const pl: Messages = {
     notifications: 'Powiadomienia',
     mock: 'Dane przykładowe',
     mock_help: 'Oglądasz zmyślone dane przykładowe, a nie własne zużycie.',
+    demo: 'Dane demonstracyjne',
+    demo_help: 'To kanjo demo: wszystkie liczby to wymyślone dane przykładowe i nic z tego komputera nie zostało odczytane.',
   },
   lang: {
     auto: 'Jak w przeglądarce',
@@ -427,6 +429,14 @@ const pl: Messages = {
         branch: 'Gałąź',
         client: 'Klient',
         session: 'Sesja',
+        query_source: 'Źródło zapytania',
+      },
+      source: {
+        none: 'Nie zapisano',
+        main: 'Główna rozmowa',
+        compact: 'Kompaktowanie (streszczenie długiej rozmowy)',
+        agent: 'Agent pomocniczy',
+        title: 'Tytuł sesji',
       },
       group: {
         hour: 'Godzinowo',

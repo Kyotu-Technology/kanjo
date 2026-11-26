@@ -10,7 +10,7 @@
 use crate::blocks::detailed;
 use crate::common::{bucket_label, bucket_start, Env, Filter, Keys, Src, REPORT_DAYS, USAGE_REQUEST_COLS};
 use kanjo_core::api::{AlertList, AuditPage, Block, Breakdown, Granularity, Query, SessionList, Turn, Usage, UsageReport};
-use kanjo_core::time::{DAY_MS, MINUTE_MS};
+use kanjo_core::time::MINUTE_MS;
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::types::Value;
 use serde_json::{json, Map, Value as Json};
@@ -326,9 +326,9 @@ fn totals(rows: &[&Acc]) -> Json {
 fn ccusage_periods(store: &Store, ctx: &Ctx, q: &Query, g: Granularity) -> Result<Json> {
     let to = q.to.unwrap_or(ctx.now);
     let from = q.from.unwrap_or_else(|| match g {
-        Granularity::Week => ctx.week_start_of(to) - 11 * 7 * DAY_MS,
+        Granularity::Week => ctx.day_shift(ctx.week_start_of(to), -11 * 7),
         Granularity::Month => ctx.month_shift(to, -11),
-        _ => ctx.day_start(to) - (REPORT_DAYS - 1) * DAY_MS,
+        _ => ctx.day_shift(to, -(REPORT_DAYS - 1)),
     });
     if from > to {
         return Err(Error::Invalid("from must not be after to".into()));

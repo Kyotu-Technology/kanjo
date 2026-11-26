@@ -159,7 +159,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
   const id = decodeURIComponent(seg[1] ?? '');
   switch (route) {
     case 'GET /health':
-      return json({ status: 'ok', version: '0.1.0-sample' });
+      return json({ status: 'ok', version: '0.1.0-sample', demo: false });
     case 'GET /overview':
       return json(v.overview(ds));
     case 'GET /usage':

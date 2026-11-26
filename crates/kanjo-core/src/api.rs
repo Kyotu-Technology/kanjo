@@ -79,6 +79,9 @@ dto! {
         Branch,
         Client,
         Session,
+        /// The part of Claude Code that sent the request (`repl_main_thread`,
+        /// `compact`, ...); empty when the transcript did not record it.
+        QuerySource,
     }
 
     /// Query parameters shared by the read endpoints. Each endpoint documents
@@ -777,6 +780,14 @@ dto! {
         pub last_seen: Ts,
     }
 
+    /// `GET /api/v1/health`, answered without the access token.
+    pub struct Health {
+        pub status: String,
+        pub version: String,
+        /// True for `kanjo demo`: every figure is invented sample data.
+        pub demo: bool,
+    }
+
     pub struct ServerInfo {
         pub bind: String,
         pub port: u16,
@@ -786,6 +797,10 @@ dto! {
 
     pub struct SystemInfo {
         pub version: String,
+        /// True for `kanjo demo`: every figure is invented sample data.
+        pub demo: bool,
+        /// Whether the terminal bell can ring: the server has a terminal of its own.
+        pub bell_available: bool,
         pub data_dir: String,
         pub claude_dir: String,
         pub claude_code_version: Option<String>,

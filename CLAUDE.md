@@ -38,4 +38,4 @@ Rust 2021, `cargo fmt` (max width 140 via rustfmt.toml), `cargo clippy --all-tar
 - `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
 - `scripts/gen-bindings.sh` regenerates `web/src/lib/api/bindings` and `contract.ts` after a change to `api.rs`
 - `cd web && npm ci && npm run build` builds the UI into `web/dist`
-- `cargo run -p kanjo-cli -- demo` serves synthetic data without touching `~/.claude`
+- `cargo run -p kanjo -- demo` serves synthetic data without touching `~/.claude`

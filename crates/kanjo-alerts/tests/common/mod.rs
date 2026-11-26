@@ -19,7 +19,7 @@ pub fn ctx() -> Ctx {
 }
 
 pub fn at(now: i64) -> Ctx {
-    Ctx { now, tz_offset_min: 60, week_start: 0 }
+    Ctx { now, tz_offset_min: 60, week_start: 0, zone: None }
 }
 
 pub fn store() -> TestStore {

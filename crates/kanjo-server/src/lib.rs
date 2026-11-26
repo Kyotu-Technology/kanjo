@@ -56,7 +56,7 @@ pub fn run_with(opts: ServeOptions, ready: impl FnOnce(&Server)) -> Result<()> {
         tracing::info!(url = %server.url(), "Kanjo is listening");
         ready(&server);
         if open {
-            open_in_browser(&server.login_url());
+            open_in_browser(&server.state().inner.paths, &server.login_url());
         }
         tokio::select! {
             _ = shutdown_signal() => tracing::info!("shutting down"),
@@ -107,25 +107,38 @@ async fn shutdown_signal() {
     }
 }
 
-/// Starts the platform's URL opener; no network library is involved.
-fn open_in_browser(url: &str) {
+/// Starts the platform's opener on an owner-only local page that forwards to
+/// `url`, so the login code is not on the opener's command line. The page is
+/// removed when the code is redeemed, or after a short delay. No network
+/// library is involved.
+fn open_in_browser(paths: &kanjo_core::paths::Paths, url: &str) {
+    use kanjo_setup::server_file::{launch_page, login_code_of, LAUNCH_PAGE_TTL};
     use std::process::{Command, Stdio};
+    let page = match login_code_of(url).map(|_| launch_page(paths, url)) {
+        Some(Ok(p)) => Some(p),
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, "could not write the sign-in page; run `kanjo open` instead");
+            return;
+        }
+        None => None,
+    };
+    let target = page.as_ref().map_or(std::ffi::OsStr::new(url), |p| p.as_os_str());
     #[cfg(target_os = "macos")]
     let mut cmd = {
         let mut c = Command::new("open");
-        c.arg(url);
+        c.arg(target);
         c
     };
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("rundll32");
-        c.args(["url.dll,FileProtocolHandler", url]);
+        c.arg("url.dll,FileProtocolHandler").arg(target);
         c
     };
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut cmd = {
         let mut c = Command::new("xdg-open");
-        c.arg(url);
+        c.arg(target);
         c
     };
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -133,8 +146,23 @@ fn open_in_browser(url: &str) {
         Ok(mut child) => {
             std::thread::spawn(move || {
                 let _ = child.wait();
+                if let Some(page) = page {
+                    // Redeeming the code removes the page; one still here was never used.
+                    let deadline = std::time::Instant::now() + LAUNCH_PAGE_TTL;
+                    while page.exists() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(250));
+                    }
+                    if std::fs::remove_file(&page).is_ok() {
+                        tracing::warn!("the browser did not sign in; a sandboxed browser may be unable to open the local sign-in page, so use `kanjo open` or the printed link");
+                    }
+                }
             });
         }
-        Err(e) => tracing::warn!(error = %e, "could not open a browser; run `kanjo open` instead"),
+        Err(e) => {
+            if let Some(page) = &page {
+                let _ = std::fs::remove_file(page);
+            }
+            tracing::warn!(error = %e, "could not open a browser; run `kanjo open` instead");
+        }
     }
 }

@@ -15,11 +15,11 @@
   <div class="cols">
     <div>
       <h3 class="subhead">{t('system.data.encryption')}</h3>
-      <p class="lock" class:off={!db.encrypted}>
-        <Icon name={db.encrypted ? 'lock' : 'warning'} size={18} />
+      <p class="lock" class:off={!db.encrypted && !d.demo} class:demo={!db.encrypted && d.demo}>
+        <Icon name={db.encrypted ? 'lock' : d.demo ? 'info' : 'warning'} size={18} />
         <span>{db.encrypted ? t('system.data.encrypted') : t('system.data.not_encrypted')}</span>
       </p>
-      {#if !db.encrypted}<p class="hint">{t('system.data.unencrypted_note')}</p>{/if}
+      {#if !db.encrypted}<p class="hint">{t(d.demo ? 'system.data.demo_encryption' : 'system.data.unencrypted_note')}</p>{/if}
       <dl class="facts">
         <div><dt>{t('system.data.key')}</dt><dd>{t(`system.data.key_${db.key_source}`)}</dd></div>
         <div><dt>{t('system.data.size')}</dt><dd class="num">{bytes(db.size_bytes)}</dd></div>
@@ -73,6 +73,9 @@
   }
   .lock.off {
     color: var(--warning-ink);
+  }
+  .lock.demo {
+    color: var(--ink-2);
   }
   .facts {
     display: flex;

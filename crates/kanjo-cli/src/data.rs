@@ -88,7 +88,14 @@ pub fn status(app: &mut App) -> CliResult<()> {
         out(&format!(
             "{}{}",
             label("Burn rate", "Tempo"),
-            tr!(lang, "{}/h over the last {} min", "{}/h w ostatnich {} min", fmt::money(lang, o.burn.usd_per_hour), o.burn.window_minutes)
+            tr!(
+                lang,
+                "{}/h, {} tokens/min over the last {} min",
+                "{}/h, {} tokenów/min w ostatnich {} min",
+                fmt::money(lang, o.burn.usd_per_hour),
+                fmt::int(lang, o.burn.tokens_per_min.round() as i64),
+                o.burn.window_minutes
+            )
         ));
     }
     if let Some(b) = &o.active_block {
@@ -614,7 +621,7 @@ pub fn audit(app: &mut App, action: Option<&AuditAction>) -> CliResult<()> {
                     .into(),
                     lang.t(
                         "compare with a backup (\"kanjo backup list\") to find out when it happened; Kanjo itself never edits entries.",
-                        "porównaj z kopią (\"kanjo backup list\"), żeby ustalić, kiedy to się stało; Kanjo sam nigdy nie edytuje wpisów.",
+                        "porównaj z kopią (\"kanjo backup list\"), żeby ustalić, kiedy to się stało; Kanjo samo nigdy nie edytuje wpisów.",
                     )
                     .into(),
                 ));

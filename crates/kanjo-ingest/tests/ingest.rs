@@ -167,6 +167,7 @@ fn second_scan_reads_nothing_and_rescan_does_not_duplicate() {
     assert_eq!(e.q::<i64>("SELECT SUM(requests) FROM usage_hourly"), 5);
     assert_eq!(e.q::<i64>("SELECT count(*) FROM config_changes"), 1, "tool changes are not replayed");
     assert_eq!(e.q::<i64>("SELECT count(*) FROM request_tools"), 6);
+    assert_eq!(e.q::<i64>("SELECT SUM(count) FROM quarantine"), 2, "a rescan does not count set-aside records twice");
 }
 
 #[test]

@@ -157,7 +157,7 @@ export function doctorChecks(ds: Dataset, input: CheckInput, lang: string | unde
           'warn',
           tx(l, 'Background service', 'Usługa w tle'),
           tx(l, 'not installed; data is collected only while kanjo serve runs', 'niezainstalowana; dane zbierane są tylko, gdy działa kanjo serve'),
-          l.pl ? `Uruchom ${up}, aby Kanjo startował razem z systemem.` : `Run ${up} to start Kanjo with your session.`,
+          l.pl ? `Uruchom ${up}, aby Kanjo startowało razem z systemem.` : `Run ${up} to start Kanjo with your session.`,
         ),
   );
   out.push(

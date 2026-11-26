@@ -276,7 +276,7 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
             Some(
                 l.t(
                     "Run a Claude Code session; Kanjo picks up new transcripts automatically.",
-                    "Przeprowadź sesję w Claude Code; Kanjo sam wczyta nowe transkrypty.",
+                    "Przeprowadź sesję w Claude Code; Kanjo samo wczyta nowe transkrypty.",
                 )
                 .into(),
             ),
@@ -813,7 +813,7 @@ pub fn run(input: &DoctorInput, lang: &str) -> Vec<DoctorCheck> {
                 "niezainstalowana; dane zbierane są tylko, gdy działa kanjo serve",
             ),
             Some(if l.pl {
-                format!("Uruchom {up}, aby Kanjo startował razem z systemem.")
+                format!("Uruchom {up}, aby Kanjo startowało razem z systemem.")
             } else {
                 format!("Run {up} to start Kanjo with your session.")
             }),

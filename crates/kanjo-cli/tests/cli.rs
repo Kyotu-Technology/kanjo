@@ -220,8 +220,12 @@ fn statusline_survives_empty_and_garbage_input() {
 fn statusline_survives_a_broken_config() {
     let env = Env::new();
     std::fs::write(env.home.join("config.toml"), "this is = = not toml").unwrap();
-    let out = ok(&env.run_stdin(&["statusline"], PAYLOAD.as_bytes()));
+    let o = env.run_stdin(&["statusline"], PAYLOAD.as_bytes());
+    let out = ok(&o);
     assert!(!out.trim().is_empty());
+    let err = text(&o.stderr);
+    assert_eq!(err.lines().count(), 1, "{err}");
+    assert!(err.contains("config.toml cannot be read"), "{err}");
 }
 
 #[test]
@@ -279,6 +283,11 @@ fn reports_on_demo_data() {
 
     let status = ok(&env.run(&["status"]));
     assert!(status.contains("5-hour limit") && status.contains("Today"), "{status}");
+    assert!(!status.contains("Burn rate") || status.contains("tokens/min"), "{status}");
+    let blocks = ok(&env.run(&["blocks", "--breakdown"]));
+    assert!(blocks.contains("- project "), "{blocks}");
+    let export = ok(&env.run(&["export", "breakdown", "--by", "query-source", "--format", "csv"]));
+    assert!(export.contains("repl_main_thread"), "{export}");
     assert!(status.lines().count() <= 16, "{status}");
     assert!(json(&env.run(&["status", "--json"]))["today"].is_object());
 
@@ -556,4 +565,27 @@ fn completions_and_help() {
     let env = Env::new();
     assert!(ok(&env.run(&["completions", "bash"])).contains("kanjo"));
     assert!(ok(&env.run(&["--version"])).contains("kanjo"));
+}
+
+/// Kanjo is neuter in Polish, as in the web UI: "Kanjo znalazło", never "Kanjo znalazł".
+#[test]
+fn polish_texts_treat_kanjo_as_neuter() {
+    let sources = [
+        include_str!("../src/setup.rs"),
+        include_str!("../src/data.rs"),
+        include_str!("../src/reports.rs"),
+        include_str!("../src/app.rs"),
+        include_str!("../src/error.rs"),
+        include_str!("../../kanjo-setup/src/doctor.rs"),
+        include_str!("../../kanjo-setup/src/claude.rs"),
+        include_str!("../../kanjo-setup/src/service.rs"),
+    ];
+    for src in sources {
+        for (i, _) in src.match_indices("Kanjo ") {
+            let rest = &src[i + "Kanjo ".len()..];
+            let rest = rest.strip_prefix("nie ").unwrap_or(rest);
+            let word: String = rest.chars().take_while(|c| c.is_alphabetic()).collect();
+            assert!(!word.ends_with('ł') && word != "sam" && word != "gotowy", "masculine form: Kanjo {word}");
+        }
+    }
 }

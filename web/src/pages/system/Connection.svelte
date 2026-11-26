@@ -46,6 +46,9 @@
 {/snippet}
 
 <Card id="connection" title={t('system.connect.title')} subtitle={t('system.connect.subtitle')} {refreshing}>
+  {#if d.demo}
+  <p class="note"><Icon name="info" size={16} /><span>{t('system.connect.demo')}</span></p>
+  {:else}
   <div class="parts">
     <div>
       {@render part('limits', t('system.connect.statusline'), h.statusline_installed, h.statusline_installed ? t('system.connect.statusline_on') : t('system.connect.statusline_off'))}
@@ -83,6 +86,7 @@
       <Button variant="secondary" busy={busy === 'disconnect'} disabled={busy !== null} onclick={() => (confirm = true)}>{t('system.connect.disconnect')}</Button>
     {/if}
   </div>
+  {/if}
 </Card>
 
 <Dialog bind:open={confirm} title={t('system.connect.confirm_title')} size="sm">

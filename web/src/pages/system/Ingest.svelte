@@ -8,7 +8,12 @@
   import Icon from '../../lib/ui/Icon.svelte';
   import { bytes, lastActivity } from './util';
 
-  let { ingest, lastRequestAt = null, refreshing = false }: { ingest: IngestStatus; lastRequestAt?: number | null; refreshing?: boolean } = $props();
+  let {
+    ingest,
+    lastRequestAt = null,
+    refreshing = false,
+    demo = false,
+  }: { ingest: IngestStatus; lastRequestAt?: number | null; refreshing?: boolean; demo?: boolean } = $props();
   let busy = $state(false);
   let started = $state(false);
   const s = $derived(app.ingest && app.ingest.files_total === ingest.files_total ? app.ingest : ingest);
@@ -38,10 +43,14 @@
 </script>
 
 <Card id="import" title={t('system.ingest.title')} subtitle={t('system.ingest.subtitle')} {refreshing}>
-  <p class="watch" class:off={!s.watcher_running}>
-    <Icon name={s.watcher_running ? 'dot' : 'warning'} size={16} strokeWidth={2.4} />
-    {s.watcher_running ? t('system.ingest.watching') : t('system.ingest.not_watching')}
-  </p>
+  {#if demo}
+    <p class="note"><Icon name="info" size={16} /><span>{t('system.ingest.demo')}</span></p>
+  {:else}
+    <p class="watch" class:off={!s.watcher_running}>
+      <Icon name={s.watcher_running ? 'dot' : 'warning'} size={16} strokeWidth={2.4} />
+      {s.watcher_running ? t('system.ingest.watching') : t('system.ingest.not_watching')}
+    </p>
+  {/if}
   {#if s.backfill_running}
     <div class="progress" role="status">
       <p class="label">{t('system.ingest.running')}</p>
@@ -51,15 +60,17 @@
       <p class="hint">{t('system.ingest.progress', { done: fmt.number(s.files_done), total: fmt.number(s.files_total), bytes: bytes(s.bytes_done) })}</p>
     </div>
   {/if}
-  <dl class="stats">
-    <div><dt>{t('system.ingest.files')}</dt><dd class="num">{fmt.number(s.files_done)} / {fmt.number(s.files_total)}</dd></div>
+  <dl class="stats" class:two={demo}>
+    {#if !demo}<div><dt>{t('system.ingest.files')}</dt><dd class="num">{fmt.number(s.files_done)} / {fmt.number(s.files_total)}</dd></div>{/if}
     <div><dt>{t('system.ingest.requests')}</dt><dd class="num">{tn('units.requests', s.requests_stored)}</dd></div>
     <div><dt>{t('system.ingest.last')}</dt><dd>{last ? fmt.ago(last) : t('system.ingest.never')}</dd></div>
   </dl>
-  <div class="rescan">
-    <Button icon="refresh" busy={busy} disabled={busy || s.backfill_running} onclick={rescan}>{t('system.ingest.rescan')}</Button>
-    <p class="hint">{t('system.ingest.rescan_help')}</p>
-  </div>
+  {#if !demo}
+    <div class="rescan">
+      <Button icon="refresh" busy={busy} disabled={busy || s.backfill_running} onclick={rescan}>{t('system.ingest.rescan')}</Button>
+      <p class="hint">{t('system.ingest.rescan_help')}</p>
+    </div>
+  {/if}
 </Card>
 
 <style>
@@ -99,6 +110,9 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--sp-4);
     margin-top: var(--sp-4);
+  }
+  .stats.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   dt {
     color: var(--ink-3);

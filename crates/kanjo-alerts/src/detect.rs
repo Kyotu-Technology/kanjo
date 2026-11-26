@@ -18,15 +18,22 @@ pub(crate) fn median(values: &[f64]) -> Option<f64> {
 
 /// Priced cost per local day in `[from, to)`, as (day start, cost), oldest first. Days without cost are absent.
 pub(crate) fn daily_costs(conn: &Connection, ctx: &Ctx, from: i64, to: i64) -> Result<Vec<(i64, f64)>> {
-    let off = ctx.tz_offset_min as i64 * 60_000;
+    // Every UTC offset in use is a whole number of quarter hours, so quarter-hour sums cut local days exactly.
     let mut stmt = conn.prepare(
-        "SELECT (ts + ?3) / 86400000 AS d, SUM(cost_usd) FROM requests
-         WHERE ts >= ?1 AND ts < ?2 AND cost_usd IS NOT NULL GROUP BY d ORDER BY d",
+        "SELECT ts / 900000 * 900000 AS q, SUM(cost_usd) FROM requests
+         WHERE ts >= ?1 AND ts < ?2 AND cost_usd IS NOT NULL GROUP BY q ORDER BY q",
     )?;
-    let rows = stmt
-        .query_map(params![from, to, off], |r| Ok((r.get::<_, i64>(0)? * DAY_MS - off, r.get::<_, f64>(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows.into_iter().filter(|(_, c)| *c > 0.0).collect())
+    let quarters = stmt.query_map(params![from, to], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?;
+    let mut days: Vec<(i64, f64)> = Vec::new();
+    for row in quarters {
+        let (q, cost) = row?;
+        let day = ctx.day_start(q);
+        match days.last_mut() {
+            Some((d, c)) if *d == day => *c += cost,
+            _ => days.push((day, cost)),
+        }
+    }
+    Ok(days.into_iter().filter(|(_, c)| *c > 0.0).collect())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +46,8 @@ pub(crate) struct Spike {
 /// The day starting at `day` against the median of the active days before it.
 pub(crate) fn cost_spike(daily: &[(i64, f64)], day: i64) -> Option<Spike> {
     let cost = daily.iter().find(|(d, _)| *d == day).map(|(_, c)| *c)?;
-    let earliest = day - SPIKE_LOOKBACK_DAYS * DAY_MS;
+    // Day starts are local midnights; half a day of slack keeps a clock change in between from moving the edge.
+    let earliest = day - SPIKE_LOOKBACK_DAYS * DAY_MS - DAY_MS / 2;
     let before: Vec<f64> = daily.iter().filter(|(d, _)| *d < day && *d >= earliest).map(|(_, c)| *c).collect();
     let baseline = &before[before.len().saturating_sub(SPIKE_BASELINE_DAYS)..];
     if baseline.len() < SPIKE_MIN_BASELINE_DAYS {

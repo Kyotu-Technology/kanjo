@@ -49,17 +49,42 @@ fn sign_in_url(paths: &Paths, rec: &ServerRecord) -> CliResult<String> {
     Ok(server_file::login_url(paths, rec, kanjo_core::time::now_ms())?)
 }
 
-fn open_browser(lang: Lang, url: &str) {
-    match open::that(url) {
-        Ok(()) => out(lang.t("Opened the dashboard in your browser.", "Otwarto pulpit w przeglądarce.")),
-        Err(_) => {
-            out(lang.t(
-                "No browser could be started. Open this address yourself:",
-                "Nie udało się uruchomić przeglądarki. Otwórz ten adres samodzielnie:",
-            ));
-            out(&format!("  {url}"));
+/// Opens `url`. A sign-in URL goes through an owner-only local page, so the
+/// single-use code never appears on the opener's command line; the page is
+/// removed once the browser has used it. When the browser has not used it in
+/// time (a sandboxed browser may be unable to read the page), the address is
+/// printed instead.
+fn open_browser(lang: Lang, paths: &Paths, url: &str) {
+    let page = server_file::login_code_of(url).and_then(|code| server_file::launch_page(paths, url).ok().map(|p| (p, code)));
+    let opened = match &page {
+        Some((p, _)) => open::that(p),
+        None => open::that(url),
+    };
+    let redeemed = match (&opened, &page) {
+        (Ok(()), Some((p, code))) => server_file::retire_launch_page(paths, p, code, server_file::LAUNCH_PAGE_TTL),
+        (Ok(()), None) => true,
+        (Err(_), Some((p, _))) => {
+            let _ = std::fs::remove_file(p);
+            false
         }
+        (Err(_), None) => false,
+    };
+    if redeemed {
+        out(lang.t("Opened the dashboard in your browser.", "Otwarto pulpit w przeglądarce."));
+        return;
     }
+    out(if opened.is_ok() {
+        lang.t(
+            "The browser did not sign in. If it shows no dashboard, open this address yourself:",
+            "Przeglądarka się nie zalogowała. Jeśli nie widać pulpitu, otwórz ten adres samodzielnie:",
+        )
+    } else {
+        lang.t(
+            "No browser could be started. Open this address yourself:",
+            "Nie udało się uruchomić przeglądarki. Otwórz ten adres samodzielnie:",
+        )
+    });
+    out(&format!("  {url}"));
 }
 
 /// The failure for a data directory another server already uses.
@@ -214,7 +239,7 @@ pub fn up(app: &mut App, yes: bool, no_open: bool, no_hooks: bool, no_service: b
     }
     let (projects, transcripts) = count_transcripts(&app.paths.claude_projects());
     let status = kanjo_setup::claude::status(&app.paths, &app.config)?;
-    out(&app.bold(lang.t("Kanjo found:", "Kanjo znalazł:")));
+    out(&app.bold(lang.t("Kanjo found:", "Kanjo znalazło:")));
     out(&tr!(lang, "  Claude Code in {}", "  Claude Code w katalogu {}", claude.display()));
     if transcripts > 0 {
         let (t_word, p_word) =
@@ -289,7 +314,7 @@ pub fn up(app: &mut App, yes: bool, no_open: bool, no_hooks: bool, no_service: b
         out(&tr!(
             lang,
             "  install {} so Kanjo starts when you log in",
-            "  zainstaluje {}, żeby Kanjo startował po zalogowaniu",
+            "  zainstaluje {}, żeby Kanjo startowało po zalogowaniu",
             service_kind(lang)
         ));
     }
@@ -356,7 +381,7 @@ fn install_service(app: &mut App, exe: &Path) -> CliResult<()> {
             tr!(lang, "the background service could not be installed ({e}).", "nie udało się zainstalować usługi w tle ({e})."),
             lang.t(
                 "run \"kanjo up --no-service\" to keep Kanjo running in this terminal instead.",
-                "uruchom \"kanjo up --no-service\", żeby zamiast tego Kanjo działał w tym terminalu.",
+                "uruchom \"kanjo up --no-service\", żeby zamiast tego Kanjo działało w tym terminalu.",
             )
             .into(),
         )
@@ -380,7 +405,7 @@ fn finish_start(app: &mut App, no_open: bool) -> CliResult<()> {
     if no_open {
         out(&tr!(lang, "Kanjo is running: {} (\"kanjo open\" signs you in).", "Kanjo działa: {} (\"kanjo open\" Cię zaloguje).", rec.url));
     } else {
-        open_browser(lang, &sign_in_url(&app.paths, &rec)?);
+        open_browser(lang, &app.paths, &sign_in_url(&app.paths, &rec)?);
     }
     Ok(())
 }
@@ -518,7 +543,7 @@ pub fn open_dashboard(app: &mut App) -> CliResult<()> {
     if app.json {
         return app.print_json(&json!({ "url": url }));
     }
-    open_browser(lang, &url);
+    open_browser(lang, &app.paths, &url);
     Ok(())
 }
 

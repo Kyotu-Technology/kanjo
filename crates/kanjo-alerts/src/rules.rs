@@ -8,7 +8,7 @@ use kanjo_core::api::{AlertKind, BudgetState, Severity};
 use kanjo_core::limits::{self, LimitKind};
 use kanjo_core::model::TokenCounts;
 use kanjo_core::settings::{AlertSettings, Settings};
-use kanjo_core::time::{hour_floor, DAY_MS, MINUTE_MS};
+use kanjo_core::time::{hour_floor, MINUTE_MS};
 use kanjo_core::{pricing, Ctx, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -35,7 +35,26 @@ pub(crate) fn candidates(conn: &Connection, ctx: &Ctx, settings: &Settings) -> R
     if a.context {
         context_rule(conn, a, &active, redact, &mut out)?;
     }
+    if ctx.zone.is_some() {
+        for c in &mut out {
+            stamp_offsets(ctx, &mut c.params);
+        }
+    }
     Ok(out)
+}
+
+/// Timestamps an alert text names as a local day and time.
+pub(crate) const LOCAL_TIME_KEYS: [&str; 3] = ["resets_at", "exhausts_at", "expired_at"];
+
+/// Stores the offset in force at each named timestamp next to it, so the text
+/// reads the right local time when a clock change falls in between.
+fn stamp_offsets(ctx: &Ctx, params: &mut Value) {
+    let Some(map) = params.as_object_mut() else { return };
+    for k in LOCAL_TIME_KEYS {
+        if let Some(ts) = map.get(k).and_then(Value::as_i64) {
+            map.insert(format!("{k}_tz_offset_min"), json!(ctx.offset_min_at(ts)));
+        }
+    }
 }
 
 /// Severity of a limit threshold.
@@ -141,7 +160,7 @@ fn budget_rules(conn: &Connection, ctx: &Ctx, out: &mut Vec<Candidate>) -> Resul
 
 fn cost_spike_rule(conn: &Connection, ctx: &Ctx, out: &mut Vec<Candidate>) -> Result<()> {
     let today = ctx.day_start(ctx.now);
-    let daily = detect::daily_costs(conn, ctx, today - SPIKE_LOOKBACK_DAYS * DAY_MS, today + DAY_MS)?;
+    let daily = detect::daily_costs(conn, ctx, ctx.day_shift(today, -SPIKE_LOOKBACK_DAYS), ctx.day_shift(today, 1))?;
     if let Some(s) = detect::cost_spike(&daily, today) {
         let date = ctx.date_label(today);
         out.push(Candidate {

@@ -63,6 +63,21 @@ fn alerts_read_on_a_later_day_name_the_date() {
 }
 
 #[test]
+fn a_reset_after_a_clock_change_is_named_in_its_own_local_time() {
+    let t = store();
+    configure(&t, |s| s.alerts.forecast = false);
+    // Saturday 2026-10-24 12:00Z in Warsaw summer time; the weekly reset on Monday 26 October 10:00Z is 11:00 winter time.
+    let now = NOW - 33 * DAY_MS + 2 * HOUR;
+    let reset = now + 2 * DAY_MS - 2 * HOUR;
+    sample(&t, LimitKind::SevenDay, now - 10 * MIN, 85.0, reset);
+    let a = evaluate(&t.store, &kanjo_core::testkit::warsaw(now)).unwrap();
+    let hits = of(&a, AlertKind::LimitThreshold);
+    assert_eq!(hits[0].params["tz_offset_min"], 120);
+    assert_eq!(hits[0].params["resets_at_tz_offset_min"], 60);
+    assert!(hits[0].message.ends_with("It resets on Monday at 11:00."), "{}", hits[0].message);
+}
+
+#[test]
 fn limit_threshold_respects_an_empty_threshold_list() {
     let t = store();
     configure(&t, |s| {

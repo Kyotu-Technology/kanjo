@@ -214,6 +214,10 @@ function rowKey(ds: Dataset, r: MockRecord, by: Dimension, sessions: Map<string,
       return r.skill ? [[r.skill, r.skill]] : [];
     case 'mcp':
       return r.mcp ? [[r.mcp, r.mcp]] : [];
+    case 'query_source': {
+      const s = r.agent ? 'agent:custom' : 'repl_main_thread';
+      return [[s, s]];
+    }
   }
 }
 
@@ -1126,6 +1130,8 @@ export function system(ds: Dataset, lang?: string): SystemInfo {
   const claudeCode = ds.scenario === 'empty' ? null : '2.4.1';
   return {
     version: '0.1.0-sample',
+    demo: false,
+    bell_available: true,
     data_dir: '/home/dev/.local/share/kanjo',
     claude_dir: '/home/dev/.claude',
     claude_code_version: claudeCode,

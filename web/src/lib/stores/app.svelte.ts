@@ -17,6 +17,10 @@ class AppState {
   live = $state<LiveStatus>('stopped');
   ingest = $state<IngestStatus | null>(null);
   unread = $state(0);
+  /** True when the server is `kanjo demo`, so every figure is invented. */
+  demo = $state(false);
+  /** Whether the server has a terminal for the alert bell; true until the server says otherwise. */
+  bellAvailable = $state(true);
   /** Name of the mock scenario when sample data is shown, otherwise null. */
   mock = $state<string | null>(null);
   settings = $state.raw<Settings | null>(null);
@@ -172,6 +176,12 @@ export async function bootstrap(): Promise<void> {
     if (app.auth === 'unauthorized') {
       applyFallbackPrefs();
       app.boot = 'ready';
+      client
+        .health()
+        .then((h) => {
+          app.demo = h.demo;
+        })
+        .catch(() => undefined);
       return;
     }
     applyFallbackPrefs();
@@ -180,13 +190,26 @@ export async function bootstrap(): Promise<void> {
     return;
   }
   void refreshUnread();
-  client
+  loadServerInfo();
+  startLive();
+}
+
+/** Demo flag (from the health check, which needs no credential), ingest status and bell availability. */
+function loadServerInfo(): void {
+  api()
+    .health()
+    .then((h) => {
+      app.demo = h.demo;
+    })
+    .catch(() => undefined);
+  api()
     .system()
     .then((s) => {
       app.ingest = s.ingest;
+      app.demo = s.demo;
+      app.bellAvailable = s.bell_available;
     })
     .catch(() => undefined);
-  startLive();
 }
 
 function applyFallbackPrefs(): void {
@@ -207,6 +230,7 @@ export async function retryAuth(): Promise<void> {
     if (!live) startLive();
     else live.start();
     void refreshUnread();
+    loadServerInfo();
   } catch (e) {
     if ((app.auth as AuthState) !== 'unauthorized') {
       app.bootError = describeError(e);

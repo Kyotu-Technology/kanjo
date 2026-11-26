@@ -7,7 +7,18 @@ export function rowLabel(by: Dimension, r: Pick<BreakdownRow, 'key' | 'label'>):
   if (by === 'model') return modelLabel(r.label || r.key);
   if (by === 'agent') return r.key === 'main' ? t('common.main') : r.label;
   if (by === 'client') return r.key ? r.label : t('pages.usage.filters.no_client');
+  if (by === 'query_source') return sourceLabel(r.key);
   return r.label || t('common.none');
+}
+
+/** Plain-language name of the part of Claude Code that sent a request. */
+export function sourceLabel(key: string): string {
+  if (!key) return t('pages.usage.source.none');
+  if (key === 'repl_main_thread') return t('pages.usage.source.main');
+  if (key === 'compact') return t('pages.usage.source.compact');
+  if (key.startsWith('agent')) return t('pages.usage.source.agent');
+  if (key.includes('title')) return t('pages.usage.source.title');
+  return key;
 }
 
 const monthFmt = new Map<string, Intl.DateTimeFormat>();

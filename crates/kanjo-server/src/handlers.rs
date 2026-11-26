@@ -122,8 +122,8 @@ fn check_id(id: &str) -> Result<(), ApiErr> {
     Ok(())
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok", "version": kanjo_core::VERSION }))
+async fn health(State(s): State<AppState>) -> Json<Health> {
+    Json(Health { status: "ok".into(), version: kanjo_core::VERSION.to_string(), demo: s.is_demo() })
 }
 
 macro_rules! read {
@@ -344,7 +344,13 @@ async fn system(State(s): State<AppState>, ApiQuery(q): ApiQuery) -> ApiResult<S
             key_source: i.key_source,
             schema_version: i.store.schema_version()?,
         };
-        let (quarantine, cc_version) = i.store.read(|c| Ok((quarantine_rows(c)?, claude_code_version(c)?)))?;
+        let (quarantine, cc_version, stored) = i.store.read(|c| {
+            let stored: (i64, Option<i64>) = c.query_row("SELECT count(*), MAX(ts) FROM requests", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            Ok((quarantine_rows(c)?, claude_code_version(c)?, stored))
+        })?;
+        let mut ingest = i.ingest_status();
+        ingest.requests_stored = stored.0;
+        ingest.last_event_at = ingest.last_event_at.or(stored.1);
         let hooks = hook_status(i, &ctx)?;
         let service = if hooks.service_installed { ServiceState::Installed } else { ServiceState::NotInstalled };
         let exe = if i.demo { None } else { std::env::current_exe().ok() };
@@ -365,11 +371,13 @@ async fn system(State(s): State<AppState>, ApiQuery(q): ApiQuery) -> ApiResult<S
         let checks = kanjo_setup::doctor::run(&input, &lang);
         Ok(SystemInfo {
             version: kanjo_core::VERSION.to_string(),
+            demo: i.demo,
+            bell_available: kanjo_alerts::notify::bell_available(),
             data_dir: i.paths.home.display().to_string(),
             claude_dir: i.paths.claude_dir.display().to_string(),
             claude_code_version: cc_version,
             database,
-            ingest: i.ingest_status(),
+            ingest,
             hooks,
             pricing,
             server: ServerInfo { bind: config.server.bind.clone(), port, tls: i.tls, auth: i.token.is_some() },
