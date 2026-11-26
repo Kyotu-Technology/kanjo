@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file. The format foll
 - Plans follow Anthropic's current line-up: Max 20x is now Ultra, the $100 plan is Max, and the Team plan's seats are Team Standard and Team Premium with their current list prices of $25 and $125 a month per seat, billed monthly. In the settings and plan-fit JSON the plan values `max5x` and `max20x` became `max` and `ultra`; settings saved by 0.1.0 are read as before.
 - A verified Ultra account has no 5-hour limit, so with Ultra chosen in Settings the plan advice can suggest Max on the weekly peak alone, and Kanjo no longer estimates a 5-hour limit in the dashboard, the Limits page, `kanjo status` or `limits.estimate` of the API.
 - The plan advice moves Team seats between Standard and Premium, as it moves individual plans between Pro, Max and Ultra.
+- Under Homebrew, `kanjo up`, `kanjo service install` and the dashboard's connect step record the `<prefix>/bin/kanjo` link instead of the versioned Cellar path for the statusline, the hooks and the background service, so the recorded path does not point into a keg that `brew upgrade` and `brew cleanup` remove.
 
 ## [0.1.0] - 2026-11-26
 

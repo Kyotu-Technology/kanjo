@@ -29,11 +29,6 @@ Size: M. Depends: K-068.
 Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-005, K-069).
 Done when: scripts/windows-vm-test.sh has run with the published MSVC zip and the reworked install.ps1, a winget install from a local manifest (written with komac or by hand) has run non-elevated and elevated with the recorded path noted, and docs/status.md states the results.
 
-### K-004 Stable executable path under Homebrew
-Size: S.
-Why: every caller records std::env::current_exe, which under Homebrew on Linux is the versioned Cellar path that brew upgrade removes, so the status line, the hooks and the service break after the first upgrade.
-Done when: only the crates part of 8d6fc57 is re-applied (git show 8d6fc57 -- crates) with its unix tests, a new line is written by hand under Unreleased in CHANGELOG.md, and the [0.1.0] section is untouched.
-
 ### K-005 Release archives rooted at kanjo-<target>/
 Size: S. Depends: K-032.
 Why: the top directory of each archive carries the version, so the executable path WinGet records changes on every upgrade.

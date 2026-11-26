@@ -135,7 +135,7 @@ pub fn status(app: &mut App) -> CliResult<()> {
 
 pub fn doctor(app: &mut App) -> CliResult<()> {
     let now = kanjo_core::time::now_ms();
-    let exe = std::env::current_exe().ok();
+    let exe = kanjo_setup::current_exe().ok();
     let mut database = None;
     let mut database_error = None;
     let mut last_statusline_at = None;
