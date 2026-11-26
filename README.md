@@ -42,8 +42,6 @@ curl -fsSL https://github.com/Kyotu-Technology/kanjo/releases/latest/download/in
 irm https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.ps1 | iex
 ```
 
-> **Install status:** no release is published yet. The curl and irm one-liners work from v0.1.0. Until then, [build from source](docs/install.md#from-source).
-
 The scripts check the archive against the release's `SHA256SUMS` and, when cosign is installed, its Sigstore signature. They need no sudo or administrator rights. Then:
 
 ```sh

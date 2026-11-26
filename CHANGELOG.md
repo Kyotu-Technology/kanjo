@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-26
+
 ### Added
 
 - Kanjo, an offline cost and limit monitor for Claude Code, shipped as one `kanjo` binary that contains the collector, a local HTTP API and the web dashboard. It reads Claude Code's files on the same machine and sends nothing over the network: no telemetry, no update checks, no price downloads.

@@ -4,8 +4,6 @@ Kanjo is an independent open-source project published by Kyotu Technology, not a
 
 Kanjo is a single binary with no runtime dependencies. You can install a release with a script or build it from source; then `kanjo up` connects it to Claude Code.
 
-> No release has been published yet, so the install scripts have nothing to download today. Building from source is the path that works now. See [status.md](status.md).
-
 ## With the install script
 
 On **Linux and macOS**, run:

@@ -42,8 +42,6 @@ curl -fsSL https://github.com/Kyotu-Technology/kanjo/releases/latest/download/in
 irm https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.ps1 | iex
 ```
 
-> **Stan instalacji:** żadne wydanie nie zostało jeszcze opublikowane. Jednolinijkowce z curl i irm zadziałają od wersji v0.1.0. Do tego czasu [zbuduj Kanjo ze źródeł](docs/install.md#from-source). Strony dokumentacji w katalogu `docs/` są po angielsku.
-
 Skrypty sprawdzają archiwum z plikiem `SHA256SUMS` wydania, a gdy zainstalowany jest cosign, także jego podpis Sigstore. Nie potrzebują sudo ani uprawnień administratora. Potem:
 
 ```sh
@@ -51,7 +49,7 @@ kanjo demo    # 30 dni syntetycznych danych w katalogu tymczasowym, bez konta, n
 kanjo up      # podłącza Claude Code: statusline, hooki sesji, usługa w tle, dashboard
 ```
 
-`kanjo up` wypisuje, co zmieni w pliku `settings.json` Claude Code, zostawia kopię tego pliku i pyta o zgodę, zanim cokolwiek zmieni; `kanjo uninstall` wszystko to cofa. Opcje, weryfikację pobranego pliku i pełny przewodnik opisuje [docs/install.md](docs/install.md).
+`kanjo up` wypisuje, co zmieni w pliku `settings.json` Claude Code, zostawia kopię tego pliku i pyta o zgodę, zanim cokolwiek zmieni; `kanjo uninstall` wszystko to cofa. Opcje, weryfikację pobranego pliku i pełny przewodnik opisuje [docs/install.md](docs/install.md). Strony dokumentacji w katalogu `docs/` są po angielsku.
 
 ## Na jakie pytania odpowiada Kanjo
 

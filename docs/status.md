@@ -4,7 +4,7 @@ This page says which platforms have been checked and how, what a user may run in
 
 Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
-Kanjo is at version 0.1.0 and no release has been tagged yet. This is what has been checked, and how:
+Kanjo is at version 0.1.0. This is what has been checked, and how:
 
 | Platform | State | How it was verified |
 | --- | --- | --- |
