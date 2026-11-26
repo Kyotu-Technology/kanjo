@@ -2,6 +2,7 @@
 //! one-page placeholder when the UI has not been built, so `cargo build` works
 //! without Node. The embedded copy lives in OUT_DIR so this script never writes
 //! into the source tree. `KANJO_WEB_DIST` points at another build of the UI.
+//! `OUT_DIR/web_files.rs` lists the copied files for `include_bytes!`.
 
 use std::fs;
 use std::io;
@@ -31,8 +32,17 @@ fn main() -> io::Result<()> {
         println!("cargo:warning=web/dist not found; embedding a placeholder page (run `cd web && npm ci && npm run build`)");
         wanted.push((PathBuf::from("index.html"), PLACEHOLDER.as_bytes().to_vec()));
     }
+    wanted.sort();
     sync(&target, &wanted)?;
-    println!("cargo:rustc-env=KANJO_WEB_DIR={}", target.display());
+    let mut table = String::from("&[\n");
+    for (rel, _) in &wanted {
+        let name: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        table.push_str(&format!("    ({:?}, include_bytes!({:?})),\n", name.join("/"), target.join(rel).display().to_string()));
+    }
+    table.push_str("]\n");
+    if fs::read_to_string(out.join("web_files.rs")).ok().as_deref() != Some(table.as_str()) {
+        fs::write(out.join("web_files.rs"), table)?;
+    }
     Ok(())
 }
 

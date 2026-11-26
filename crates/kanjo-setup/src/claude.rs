@@ -190,7 +190,7 @@ fn backup(path: &Path, original: &[u8], now_ms: i64) -> Result<Option<PathBuf>> 
             return Ok(None);
         }
     }
-    let stamp = chrono::DateTime::from_timestamp_millis(now_ms).unwrap_or_default().format("%Y%m%dT%H%M%SZ").to_string();
+    let stamp = kanjo_core::time::utc_datetime(now_ms).strftime("%Y%m%dT%H%M%SZ").to_string();
     let mut target = dir.join(format!("{prefix}{stamp}"));
     let mut n = 1;
     while target.exists() {

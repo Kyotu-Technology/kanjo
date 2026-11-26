@@ -9,7 +9,7 @@ use kanjo_core::{Error, Result, Store};
 use std::path::{Path, PathBuf};
 
 fn stamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts).map(|d| d.format("%Y%m%d-%H%M%S").to_string()).unwrap_or_else(|| ts.to_string())
+    jiff::Timestamp::from_millisecond(ts).map(|t| t.strftime("%Y%m%d-%H%M%S").to_string()).unwrap_or_else(|_| ts.to_string())
 }
 
 /// Writes a consistent copy (encrypted with the live key) named
@@ -66,8 +66,11 @@ fn created_from_name(name: &str) -> Option<i64> {
     let stem = name.strip_suffix(".db")?;
     if let Some(rest) = stem.strip_prefix("kanjo-") {
         let ts: String = rest.chars().take(15).collect();
-        let dt = chrono::NaiveDateTime::parse_from_str(&ts, "%Y%m%d-%H%M%S").ok()?;
-        return Some(dt.and_utc().timestamp_millis());
+        if !ts.starts_with(|c: char| c.is_ascii_digit()) {
+            return None;
+        }
+        let dt = jiff::civil::DateTime::strptime("%Y%m%d-%H%M%S", &ts).ok()?;
+        return Some(kanjo_core::time::utc_millis(dt));
     }
     stem.strip_prefix("pre-migration-v").and_then(|rest| rest.split_once('-')).and_then(|(_, ms)| ms.parse().ok())
 }

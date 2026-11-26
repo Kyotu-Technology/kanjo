@@ -21,14 +21,14 @@ pub enum Report {
 /// Local midnight of a `YYYY-MM-DD` or `YYYYMMDD` date.
 pub fn parse_date(lang: Lang, ctx: &Ctx, text: &str) -> CliResult<i64> {
     let t = text.trim();
-    let parsed = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d").or_else(|_| chrono::NaiveDate::parse_from_str(t, "%Y%m%d"));
-    let date = parsed.map_err(|_| {
+    let compact = || if t.bytes().all(|b| b.is_ascii_digit()) { jiff::civil::Date::strptime("%Y%m%d", t).ok() } else { None };
+    let date = jiff::civil::Date::strptime("%Y-%m-%d", t).ok().or_else(compact).ok_or_else(|| {
         fail(
             tr!(lang, "\"{t}\" is not a date Kanjo understands.", "\"{t}\" nie jest datą, którą Kanjo rozumie."),
             tr!(lang, "write dates as YYYY-MM-DD, for example 2026-11-01.", "podaj datę w formacie RRRR-MM-DD, na przykład 2026-11-01."),
         )
     })?;
-    let utc_midnight = date.and_hms_opt(0, 0, 0).map(|d| d.and_utc().timestamp_millis()).unwrap_or_default();
+    let utc_midnight = kanjo_core::time::utc_millis(date.at(0, 0, 0, 0));
     Ok(utc_midnight - ctx.tz_offset_min as i64 * 60_000)
 }
 

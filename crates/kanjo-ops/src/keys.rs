@@ -24,8 +24,10 @@ pub trait Keyring {
     fn set(&self, secret: &str) -> Result<()>;
 }
 
-/// The platform keyring: Secret Service (D-Bus) on Linux, Keychain on macOS,
-/// Credential Manager on Windows. One entry per data directory.
+/// The platform keyring: Secret Service (D-Bus) on Linux and the BSDs, Keychain
+/// on macOS, Credential Manager on Windows. One entry per data directory, stored
+/// under the same service and user names as the keyring crate used, so entries
+/// written by earlier releases are found.
 pub struct OsKeyring {
     account: String,
 }
@@ -34,23 +36,108 @@ impl OsKeyring {
     pub fn new(paths: &Paths) -> OsKeyring {
         OsKeyring { account: format!("database-key:{}", paths.home.display()) }
     }
-
-    fn entry(&self) -> Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, &self.account).map_err(|e| Error::Other(format!("keyring unavailable: {e}")))
-    }
 }
 
 impl Keyring for OsKeyring {
     fn get(&self) -> Result<Option<String>> {
-        match self.entry()?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(Error::Other(format!("keyring unavailable: {e}"))),
-        }
+        os::get(SERVICE, &self.account).map_err(|e| Error::Other(format!("keyring unavailable: {e}")))
     }
 
     fn set(&self, secret: &str) -> Result<()> {
-        self.entry()?.set_password(secret).map_err(|e| Error::Other(format!("cannot store the key in the keyring: {e}")))
+        os::set(SERVICE, &self.account, secret).map_err(|e| Error::Other(format!("cannot store the key in the keyring: {e}")))
+    }
+}
+
+/// Secret Service through secret-service's blocking API. Items are matched on
+/// the `service` and `username` attributes; new items go to the default
+/// collection with `target = default`, as keyring 3 created them.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod os {
+    use secret_service::blocking::{Item, SecretService};
+    use secret_service::EncryptionType;
+    use std::collections::HashMap;
+
+    fn find<'a>(ss: &'a SecretService<'a>, service: &str, user: &str) -> Result<Option<Item<'a>>, String> {
+        let found = ss.search_items(HashMap::from([("service", service), ("username", user)])).map_err(|e| e.to_string())?;
+        let mut items: Vec<Item> = found.unlocked.into_iter().chain(found.locked).collect();
+        match items.len() {
+            0 => Ok(None),
+            1 => {
+                let item = items.remove(0);
+                item.ensure_unlocked().map_err(|e| e.to_string())?;
+                Ok(Some(item))
+            }
+            n => Err(format!("{n} Secret Service items match service {service:?} and user {user:?}")),
+        }
+    }
+
+    pub fn get(service: &str, user: &str) -> Result<Option<String>, String> {
+        let ss = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
+        match find(&ss, service, user)? {
+            None => Ok(None),
+            Some(item) => {
+                let secret = item.get_secret().map_err(|e| e.to_string())?;
+                String::from_utf8(secret).map(Some).map_err(|_| "the stored secret is not UTF-8 text".to_string())
+            }
+        }
+    }
+
+    pub fn set(service: &str, user: &str, secret: &str) -> Result<(), String> {
+        let ss = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
+        if let Some(item) = find(&ss, service, user)? {
+            return item.set_secret(secret.as_bytes(), "text/plain").map_err(|e| e.to_string());
+        }
+        let collection = ss.get_default_collection().map_err(|e| e.to_string())?;
+        collection.ensure_unlocked().map_err(|e| e.to_string())?;
+        let attributes = HashMap::from([("service", service), ("username", user), ("target", "default")]);
+        collection
+            .create_item(&format!("{user}@{service}"), attributes, secret.as_bytes(), true, "text/plain")
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Keychain (macOS) and Credential Manager (Windows) through keyring-core and
+/// the platform store crates, with their default naming.
+#[cfg(any(target_os = "macos", windows))]
+mod os {
+    use std::sync::LazyLock;
+
+    static STORE: LazyLock<Result<(), String>> = LazyLock::new(|| {
+        #[cfg(target_os = "macos")]
+        let store = apple_native_keyring_store::keychain::Store::new();
+        #[cfg(windows)]
+        let store = windows_native_keyring_store::Store::new();
+        keyring_core::set_default_store(store.map_err(|e| e.to_string())?);
+        Ok(())
+    });
+
+    fn entry(service: &str, user: &str) -> Result<keyring_core::Entry, String> {
+        STORE.clone()?;
+        keyring_core::Entry::new(service, user).map_err(|e| e.to_string())
+    }
+
+    pub fn get(service: &str, user: &str) -> Result<Option<String>, String> {
+        match entry(service, user)?.get_password() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub fn set(service: &str, user: &str, secret: &str) -> Result<(), String> {
+        entry(service, user)?.set_password(secret).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(not(any(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))), target_os = "macos", windows)))]
+mod os {
+    pub fn get(_: &str, _: &str) -> Result<Option<String>, String> {
+        Err("no OS keyring on this platform".to_string())
+    }
+
+    pub fn set(_: &str, _: &str, _: &str) -> Result<(), String> {
+        Err("no OS keyring on this platform".to_string())
     }
 }
 

@@ -310,8 +310,8 @@ fn offset_ms(ctx: &Ctx) -> i64 {
     ctx.tz_offset_min as i64 * MINUTE_MS
 }
 
-fn local(ctx: &Ctx, ts: i64) -> chrono::NaiveDateTime {
-    chrono::DateTime::from_timestamp_millis(ts + offset_ms(ctx)).unwrap_or_default().naive_utc()
+fn local(ctx: &Ctx, ts: i64) -> jiff::civil::DateTime {
+    kanjo_core::time::utc_datetime(ts + offset_ms(ctx))
 }
 
 /// Start of the local bucket of granularity `g` containing `ts`.
@@ -336,18 +336,18 @@ pub(crate) fn bucket_next(ctx: &Ctx, g: Granularity, start: i64) -> i64 {
 /// `YYYY-MM-DD HH:00`, `YYYY-MM-DD`, `YYYY-Www` (ISO week of the Monday inside the bucket) or `YYYY-MM`.
 pub(crate) fn bucket_label(ctx: &Ctx, g: Granularity, start: i64) -> String {
     match g {
-        Granularity::Hour => local(ctx, start).format("%Y-%m-%d %H:00").to_string(),
+        Granularity::Hour => local(ctx, start).strftime("%Y-%m-%d %H:00").to_string(),
         Granularity::Day => ctx.date_label(start),
         Granularity::Week => {
             let monday = start + ((7 - ctx.week_start as i64) % 7) * DAY_MS;
-            local(ctx, monday).format("%G-W%V").to_string()
+            local(ctx, monday).strftime("%G-W%V").to_string()
         }
-        Granularity::Month => local(ctx, start).format("%Y-%m").to_string(),
+        Granularity::Month => local(ctx, start).strftime("%Y-%m").to_string(),
     }
 }
 
 pub(crate) fn minute_label(ctx: &Ctx, ts: i64) -> String {
-    local(ctx, ts).format("%Y-%m-%d %H:%M").to_string()
+    local(ctx, ts).strftime("%Y-%m-%d %H:%M").to_string()
 }
 
 /// Local weekday (0 = Monday) and hour of `ts`.

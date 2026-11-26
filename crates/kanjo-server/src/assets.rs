@@ -1,5 +1,6 @@
 //! The embedded web UI. `build.rs` copies web/dist (or a placeholder page)
-//! into OUT_DIR; it is compiled into the binary in every profile.
+//! into OUT_DIR and lists it in `web_files.rs`; it is compiled into the binary
+//! in every profile.
 
 use crate::error::ApiErr;
 use crate::state::AppState;
@@ -8,13 +9,18 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
-use rust_embed::RustEmbed;
 use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
-#[derive(RustEmbed)]
-#[folder = "$KANJO_WEB_DIR"]
 struct Web;
+
+impl Web {
+    const FILES: &'static [(&'static str, &'static [u8])] = include!(concat!(env!("OUT_DIR"), "/web_files.rs"));
+
+    fn get(path: &str) -> Option<&'static [u8]> {
+        Web::FILES.iter().find(|(name, _)| *name == path).map(|(_, data)| *data)
+    }
+}
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
@@ -24,8 +30,8 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// does not restrict), so style-src is 'self' only.
 pub(crate) fn csp() -> HeaderValue {
     static CSP: LazyLock<HeaderValue> = LazyLock::new(|| {
-        let index = Web::get("index.html").map(|f| f.data.into_owned()).unwrap_or_default();
-        let policy = policy_for(&String::from_utf8_lossy(&index));
+        let index = Web::get("index.html").unwrap_or_default();
+        let policy = policy_for(&String::from_utf8_lossy(index));
         HeaderValue::from_str(&policy).unwrap_or(HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"))
     });
     CSP.clone()
@@ -80,7 +86,7 @@ fn mime(path: &str) -> &'static str {
 
 fn file(path: &str, cache: &'static str) -> Option<Response> {
     let f = Web::get(path)?;
-    let mut res = Response::new(Body::from(f.data.into_owned()));
+    let mut res = Response::new(Body::from(f));
     let h = res.headers_mut();
     h.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime(path)));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));

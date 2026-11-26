@@ -12,10 +12,10 @@ homepage.workspace = true
 kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
 memchr = "2"
 notify = "8.2"
-rusqlite = { version = "0.40.2", default-features = false }
+rusqlite = { version = "0.43.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
-sha2 = "0.10"
+sha2 = "0.11"
 tracing = "0.1.44"
 
 [lints]

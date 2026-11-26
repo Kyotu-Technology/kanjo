@@ -22,8 +22,7 @@ pub const DEMO_MARKER: &str = "demo.seed";
 /// `now`, bucketed by the local time zone of this machine. The same seed
 /// gives the same data. Refuses to touch a database that holds real usage.
 pub fn populate(store: &Store, now: i64, days: u32, seed: u64) -> Result<()> {
-    use chrono::{Offset, TimeZone};
-    let offset = chrono::Local.timestamp_millis_opt(now).single().map(|d| d.offset().fix().local_minus_utc() / 60).unwrap_or(0);
+    let offset = kanjo_core::time::local_offset_min(now);
     populate_in(store, &Ctx { now, tz_offset_min: offset, week_start: 0 }, days, seed)
 }
 
