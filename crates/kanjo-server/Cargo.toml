@@ -14,12 +14,12 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 getrandom = "0.4"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1", "server-graceful", "service"] }
-kanjo-alerts = { version = "0.1.0", path = "../kanjo-alerts" }
-kanjo-analytics = { version = "0.1.0", path = "../kanjo-analytics" }
-kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
-kanjo-ingest = { version = "0.1.0", path = "../kanjo-ingest" }
-kanjo-ops = { version = "0.1.0", path = "../kanjo-ops" }
-kanjo-setup = { version = "0.1.0", path = "../kanjo-setup" }
+kanjo-alerts = { version = "0.2.0-rc.1", path = "../kanjo-alerts" }
+kanjo-analytics = { version = "0.2.0-rc.1", path = "../kanjo-analytics" }
+kanjo-core = { version = "0.2.0-rc.1", path = "../kanjo-core" }
+kanjo-ingest = { version = "0.2.0-rc.1", path = "../kanjo-ingest" }
+kanjo-ops = { version = "0.2.0-rc.1", path = "../kanjo-ops" }
+kanjo-setup = { version = "0.2.0-rc.1", path = "../kanjo-setup" }
 rusqlite = { version = "0.43.0", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
