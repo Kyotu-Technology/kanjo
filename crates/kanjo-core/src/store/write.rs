@@ -47,6 +47,21 @@ pub fn project_alias(key: &str) -> String {
     format!("project-{:06x}", h & 0xff_ffff)
 }
 
+fn exec(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<usize> {
+    Ok(tx.prepare_cached(sql)?.execute(params)?)
+}
+
+/// Sets or clears a session's title. Callers decide whether titles may be stored at all.
+pub fn set_session_title(tx: &Connection, session_id: &str, title: Option<&str>) -> Result<()> {
+    exec(tx, "UPDATE sessions SET title = ?2 WHERE id = ?1 AND title IS NOT ?2", params![session_id, title])?;
+    Ok(())
+}
+
+pub fn set_session_account(tx: &Connection, session_id: &str, account: &str) -> Result<()> {
+    exec(tx, "UPDATE sessions SET account = ?2 WHERE id = ?1 AND account IS NOT ?2", params![session_id, account])?;
+    Ok(())
+}
+
 struct Existing {
     id: i64,
     session_id: String,
@@ -74,35 +89,35 @@ struct Delta {
 pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> Result<InsertOutcome> {
     let cost = prices.cost(&r.model, &r.tokens);
     let existing = tx
-        .query_row(
+        .prepare_cached(
             "SELECT id, session_id, project_id, ts, model, COALESCE(agent_type, ''), is_sidechain,
                     input, output, cache_read, cache_write_5m, cache_write_1h, cost_usd
              FROM requests WHERE message_id = ?1",
-            [&r.message_id],
-            |row| {
-                Ok(Existing {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    project_id: row.get(2)?,
-                    ts: row.get(3)?,
-                    model: row.get(4)?,
-                    agent_type: row.get(5)?,
-                    is_sidechain: row.get(6)?,
-                    tokens: TokenCounts {
-                        input: row.get(7)?,
-                        output: row.get(8)?,
-                        cache_read: row.get(9)?,
-                        cache_write_5m: row.get(10)?,
-                        cache_write_1h: row.get(11)?,
-                    },
-                    cost: row.get(12)?,
-                })
-            },
-        )
+        )?
+        .query_row([&r.message_id], |row| {
+            Ok(Existing {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                project_id: row.get(2)?,
+                ts: row.get(3)?,
+                model: row.get(4)?,
+                agent_type: row.get(5)?,
+                is_sidechain: row.get(6)?,
+                tokens: TokenCounts {
+                    input: row.get(7)?,
+                    output: row.get(8)?,
+                    cache_read: row.get(9)?,
+                    cache_write_5m: row.get(10)?,
+                    cache_write_1h: row.get(11)?,
+                },
+                cost: row.get(12)?,
+            })
+        })
         .optional()?;
 
     let Some(old) = existing else {
-        tx.execute(
+        exec(
+            tx,
             "INSERT INTO requests (message_id, request_id, session_id, project_id, ts, model,
                 input, output, cache_read, cache_write_5m, cache_write_1h, web_search, web_fetch,
                 cost_usd, price_version, speed, service_tier, effort, is_sidechain, agent_id, agent_type,
@@ -137,7 +152,8 @@ pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> R
             ],
         )?;
         add_tools(tx, tx.last_insert_rowid(), r)?;
-        tx.execute(
+        exec(
+            tx,
             "INSERT INTO sessions (id, project_id, git_branch, cc_version, entrypoint, started_at, last_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
              ON CONFLICT (id) DO UPDATE SET
@@ -148,7 +164,8 @@ pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> R
                entrypoint = COALESCE(excluded.entrypoint, entrypoint)",
             params![r.session_id, r.project_id, r.git_branch, r.cc_version, r.entrypoint, r.ts],
         )?;
-        tx.execute(
+        exec(
+            tx,
             "UPDATE projects SET first_seen = MIN(first_seen, ?2), last_seen = MAX(last_seen, ?2) WHERE id = ?1",
             params![r.project_id, r.ts],
         )?;
@@ -163,7 +180,8 @@ pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> R
     }
     // Re-price with the row's original model so the delta lands in the same aggregate bucket.
     let new_cost = prices.cost(&old.model, &r.tokens);
-    tx.execute(
+    exec(
+        tx,
         "UPDATE requests SET input = ?2, output = ?3, cache_read = ?4, cache_write_5m = ?5, cache_write_1h = ?6,
                 cost_usd = ?7, price_version = ?8, stop_reason = COALESCE(?9, stop_reason)
          WHERE id = ?1",
@@ -197,7 +215,8 @@ pub fn insert_request(tx: &Connection, r: &RequestRow, prices: &PriceTable) -> R
 
 fn add_tools(tx: &Connection, request_id: i64, r: &RequestRow) -> Result<()> {
     for tool in &r.tools {
-        tx.execute(
+        exec(
+            tx,
             "INSERT OR IGNORE INTO request_tools (request_id, use_id, kind, name) VALUES (?1, ?2, ?3, ?4)",
             params![request_id, tool.use_id, tool.kind.as_str(), tool.name],
         )?;
@@ -216,7 +235,8 @@ fn apply(
     sidechain: bool,
     d: &Delta,
 ) -> Result<()> {
-    tx.execute(
+    exec(
+        tx,
         "INSERT INTO usage_hourly (hour, project_id, model, agent_type, requests, input, output, cache_read,
                 cache_write_5m, cache_write_1h, cost_usd, unpriced_requests)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -244,7 +264,8 @@ fn apply(
             d.unpriced,
         ],
     )?;
-    tx.execute(
+    exec(
+        tx,
         "UPDATE sessions SET
            requests = requests + ?2, input = input + ?3, output = output + ?4, cache_read = cache_read + ?5,
            cache_write_5m = cache_write_5m + ?6, cache_write_1h = cache_write_1h + ?7,
@@ -286,10 +307,45 @@ pub fn record_quarantine(
     Ok(())
 }
 
-/// Recomputes `cost_usd` for every stored request with `prices` and rebuilds
-/// the session totals and the hourly aggregate from the request rows that
-/// still exist. Hours older than the oldest kept request are left untouched.
+const SNAPSHOT_SQL: &str = "
+    CREATE TEMP TABLE IF NOT EXISTS reprice_hourly (hour INTEGER, project_id INTEGER, model TEXT, agent_type TEXT, cost REAL, unpriced INTEGER,
+        PRIMARY KEY (hour, project_id, model, agent_type)) WITHOUT ROWID;
+    CREATE TEMP TABLE IF NOT EXISTS reprice_sessions (id TEXT PRIMARY KEY, cost REAL, unpriced INTEGER, side REAL) WITHOUT ROWID;
+    DELETE FROM reprice_hourly;
+    DELETE FROM reprice_sessions;
+    INSERT INTO reprice_hourly
+      SELECT (ts / 3600000) * 3600000, project_id, model, COALESCE(agent_type, ''), -COALESCE(SUM(cost_usd), 0), -SUM(cost_usd IS NULL)
+      FROM requests GROUP BY 1, 2, 3, 4;
+    INSERT INTO reprice_sessions
+      SELECT session_id, -COALESCE(SUM(cost_usd), 0), -SUM(cost_usd IS NULL), -COALESCE(SUM(CASE WHEN is_sidechain THEN cost_usd END), 0)
+      FROM requests GROUP BY 1;";
+
+const APPLY_SQL: &str = "
+    INSERT INTO reprice_hourly
+      SELECT (ts / 3600000) * 3600000, project_id, model, COALESCE(agent_type, ''), COALESCE(SUM(cost_usd), 0), SUM(cost_usd IS NULL)
+      FROM requests WHERE true GROUP BY 1, 2, 3, 4
+      ON CONFLICT DO UPDATE SET cost = cost + excluded.cost, unpriced = unpriced + excluded.unpriced;
+    INSERT INTO reprice_sessions
+      SELECT session_id, COALESCE(SUM(cost_usd), 0), SUM(cost_usd IS NULL), COALESCE(SUM(CASE WHEN is_sidechain THEN cost_usd END), 0)
+      FROM requests WHERE true GROUP BY 1
+      ON CONFLICT DO UPDATE SET cost = cost + excluded.cost, unpriced = unpriced + excluded.unpriced, side = side + excluded.side;
+    UPDATE usage_hourly SET
+        cost_usd = cost_usd + d.cost, unpriced_requests = unpriced_requests + d.unpriced
+      FROM reprice_hourly d
+      WHERE usage_hourly.hour = d.hour AND usage_hourly.project_id = d.project_id AND usage_hourly.model = d.model
+        AND usage_hourly.agent_type = d.agent_type;
+    UPDATE sessions SET
+        cost_usd = cost_usd + d.cost, unpriced_requests = unpriced_requests + d.unpriced, sidechain_cost_usd = sidechain_cost_usd + d.side
+      FROM reprice_sessions d WHERE sessions.id = d.id;
+    DROP TABLE reprice_hourly;
+    DROP TABLE reprice_sessions;";
+
+/// Recomputes `cost_usd` of every stored request with `prices` and moves the
+/// session totals and the hourly aggregate by the resulting difference.
+/// Working with the difference matters once retention has removed old request
+/// rows: their share of the totals is historical and stays as it was priced.
 pub fn reprice_all(tx: &Connection, prices: &PriceTable) -> Result<i64> {
+    tx.execute_batch(SNAPSHOT_SQL)?;
     let models: Vec<String> = {
         let mut stmt = tx.prepare("SELECT DISTINCT model FROM requests")?;
         let rows = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
@@ -314,25 +370,7 @@ pub fn reprice_all(tx: &Connection, prices: &PriceTable) -> Result<i64> {
             }
         }
     }
-    let oldest: Option<i64> = tx.query_row("SELECT MIN(ts) FROM requests", [], |r| r.get(0))?;
-    if let Some(oldest) = oldest {
-        tx.execute("DELETE FROM usage_hourly WHERE hour >= ?1", [hour_floor(oldest)])?;
-        tx.execute(
-            "INSERT INTO usage_hourly (hour, project_id, model, agent_type, requests, input, output, cache_read,
-                    cache_write_5m, cache_write_1h, cost_usd, unpriced_requests)
-             SELECT (ts / 3600000) * 3600000, project_id, model, COALESCE(agent_type, ''), COUNT(*), SUM(input), SUM(output),
-                    SUM(cache_read), SUM(cache_write_5m), SUM(cache_write_1h), COALESCE(SUM(cost_usd), 0), SUM(cost_usd IS NULL)
-             FROM requests GROUP BY 1, 2, 3, 4",
-            [],
-        )?;
-        tx.execute(
-            "UPDATE sessions SET (cost_usd, unpriced_requests, sidechain_cost_usd) = (
-               SELECT COALESCE(SUM(cost_usd), 0), SUM(cost_usd IS NULL), COALESCE(SUM(CASE WHEN is_sidechain THEN cost_usd END), 0)
-               FROM requests WHERE requests.session_id = sessions.id)
-             WHERE id IN (SELECT DISTINCT session_id FROM requests)",
-            [],
-        )?;
-    }
+    tx.execute_batch(APPLY_SQL)?;
     Ok(changed)
 }
 
@@ -435,6 +473,30 @@ mod tests {
         let after = totals(&t.store);
         assert_eq!((before.0, before.1), (after.0, after.1));
         assert!((after.2 - before.2 * 2.0).abs() < 1e-9 && (after.4 - before.4 * 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reprice_keeps_the_share_of_requests_that_were_purged() {
+        let t = testkit::TestStore::new();
+        let p = t.project("p1");
+        for i in 0..4 {
+            let mut r = testkit::request(&format!("msg_{i}"), "s1", 1_795_000_000_000 + i * 60_000, "claude-opus-5-5", 1000, 500);
+            r.project_id = p;
+            t.insert(&r);
+        }
+        let one = PriceTable::embedded().cost("claude-opus-5-5", &testkit::request("x", "s", 0, "m", 1000, 500).tokens).unwrap();
+        t.store.write(|tx| Ok(tx.execute("DELETE FROM requests WHERE message_id IN ('msg_0', 'msg_1')", [])?)).unwrap();
+        let mut doubled = PriceTable::embedded().clone();
+        doubled.version = "test-x2".into();
+        for price in doubled.models.values_mut() {
+            price.input_cost_per_token *= 2.0;
+            price.output_cost_per_token *= 2.0;
+        }
+        t.store.write(|tx| reprice_all(tx, &doubled)).unwrap();
+        let after = totals(&t.store);
+        assert_eq!(after.0, 4);
+        assert!((after.2 - one * 6.0).abs() < 1e-9, "hourly {}", after.2);
+        assert!((after.4 - one * 6.0).abs() < 1e-9, "session {}", after.4);
     }
 
     #[test]

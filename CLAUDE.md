@@ -21,8 +21,8 @@ Each crate has one job and depends only on the crates listed after it.
 1. No prompt or response text is ever stored, logged or exported. The parser extracts usage numbers and metadata only. The quarantine keeps a record's type and key signature, never the record. The transcript viewer reads the file on demand, is off by default and every view is audited.
 2. No outbound network traffic. No HTTP client crate may enter the dependency tree (`reqwest`, `ureq`, `hyper` client, `curl`, ...). No telemetry, update checks or price downloads. Notifications are local only.
 3. Filesystem locations come from `kanjo_core::paths::Paths`. Tests and demos use temporary directories; nothing in a test may read or write the real `~/.claude` or the real data directory.
-4. `requests`, `sessions` and `usage_hourly` are written only through `kanjo_core::store::write`. Other tables are written by the crate that owns the feature, inside `Store::write`.
-5. JSON shapes live in `kanjo_core::api` only. Changing them means regenerating bindings (`cargo test -p kanjo-core export_bindings`) and updating the UI.
+4. Rows enter `requests`, `sessions` and `usage_hourly` only through `kanjo_core::store::write`, which keeps the three consistent. The only other code that changes them is deletion in `kanjo_ops::retention` (retention and purge on request). Other tables are written by the crate that owns the feature, inside `Store::write`.
+5. JSON shapes live in `kanjo_core::api` only. Changing them means regenerating bindings (`scripts/gen-bindings.sh`) and updating the UI.
 6. Timestamps are epoch milliseconds UTC everywhere. Local-time bucketing uses `kanjo_core::Ctx`; functions take `&Ctx` instead of reading the clock so tests are deterministic.
 7. An unknown model is unpriced (`cost_usd` NULL, counted in `unpriced_requests`), never free and never guessed.
 8. Library code returns `Result`; no `unwrap`/`expect`/`panic!` outside tests, no `unsafe` without a written justification. Blocking database work must not run on the async runtime threads (`spawn_blocking`).
@@ -36,6 +36,6 @@ Rust 2021, `cargo fmt` (max width 140 via rustfmt.toml), `cargo clippy --all-tar
 ## Commands
 
 - `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test -p kanjo-core export_bindings` regenerates `web/src/lib/api/bindings`
+- `scripts/gen-bindings.sh` regenerates `web/src/lib/api/bindings` and `contract.ts` after a change to `api.rs`
 - `cd web && npm ci && npm run build` builds the UI into `web/dist`
 - `cargo run -p kanjo-cli -- demo` serves synthetic data without touching `~/.claude`

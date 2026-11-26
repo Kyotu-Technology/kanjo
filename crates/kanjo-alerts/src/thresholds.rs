@@ -5,7 +5,7 @@ use kanjo_core::time::{DAY_MS, HOUR_MS, MINUTE_MS};
 
 /// A session is active while its last request or statusline snapshot is at
 /// most this old and no `SessionEnd` hook marker came after it.
-pub const ACTIVE_SESSION_MS: i64 = 30 * MINUTE_MS;
+pub const ACTIVE_SESSION_MS: i64 = kanjo_core::time::ACTIVE_SESSION_MS;
 
 /// A limit threshold at or above this percentage raises a critical alert.
 pub const LIMIT_CRITICAL_PCT: f64 = 95.0;
