@@ -68,6 +68,10 @@ pub struct StatuslineConfig {
     pub chain_command: Option<String>,
     /// Print Kanjo's own segment even when chaining.
     pub show_segment: bool,
+    /// Mirror of the "store session titles" privacy setting for the statusline
+    /// fast path, which never opens the database. Off: the session name is
+    /// dropped before anything is written to the spool.
+    pub capture_titles: bool,
 }
 
 impl Config {

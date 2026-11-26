@@ -49,6 +49,14 @@ impl Paths {
     pub fn token_file(&self) -> PathBuf {
         self.home.join("access.token")
     }
+    /// Written by a running server (address, process id) so the command line can find it.
+    pub fn server_file(&self) -> PathBuf {
+        self.home.join("server.json")
+    }
+    /// Single-use browser login codes handed from the command line to the running server.
+    pub fn login_dir(&self) -> PathBuf {
+        self.home.join("login")
+    }
     pub fn log_dir(&self) -> PathBuf {
         self.home.join("logs")
     }
