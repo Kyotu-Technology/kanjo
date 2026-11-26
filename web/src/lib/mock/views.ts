@@ -1136,7 +1136,7 @@ export function system(ds: Dataset, lang?: string): SystemInfo {
   const claudeCode = ds.scenario === 'empty' ? null : '2.4.1';
   return {
     version: '0.1.0-sample',
-    demo: false,
+    demo: ds.scenario === 'demo',
     bell_available: true,
     data_dir: '/home/dev/.local/share/kanjo',
     claude_dir: '/home/dev/.claude',

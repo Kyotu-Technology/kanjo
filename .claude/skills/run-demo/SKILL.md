@@ -32,7 +32,7 @@ For work on the UI that needs no server, in `web/`:
 npm run dev
 ```
 
-Open `http://localhost:5173/?mock`. `?mock=<scenario>` picks a state (`default`, `onboarding`, `empty`, `import`, `nostatusline`, `unpriced`, `unauthorized`, `redacted`, `viewer`, `gateway`, `expired`, `tampered`), and `?lang=en|pl` and `?theme=light|dark` override the saved preferences. Check a UI change in both languages, both themes and at 360 px width.
+Open `http://localhost:5173/?mock`. `?mock=<scenario>` picks a state (`default`, `onboarding`, `demo`, `empty`, `import`, `nostatusline`, `unpriced`, `unauthorized`, `redacted`, `viewer`, `gateway`, `expired`, `tampered`), and `?lang=en|pl` and `?theme=light|dark` override the saved preferences. Check a UI change in both languages, both themes and at 360 px width.
 
 ## Screenshots
 

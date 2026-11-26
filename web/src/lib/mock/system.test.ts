@@ -85,4 +85,16 @@ describe('mock system and settings', () => {
     now += 60_000;
     await expect(api.settings()).rejects.toMatchObject({ code: 'unauthorized', status: 401 });
   });
+
+  test('the demo scenario reports demo mode and refuses to change Claude Code settings, as kanjo demo does', async () => {
+    const { api } = client({ scenario: 'demo' });
+    expect((await api.health()).demo).toBe(true);
+    const s = await api.system();
+    expect(s.demo).toBe(true);
+    expect(s.hooks.statusline_installed).toBe(false);
+    expect((await api.settings()).onboarding_done).toBe(false);
+    await expect(api.installHooks({ statusline: true, session_hooks: true, service: false })).rejects.toMatchObject({ code: 'disabled', status: 403 });
+    await expect(api.removeHooks()).rejects.toMatchObject({ code: 'disabled', status: 403 });
+    expect((await client().api.system()).demo).toBe(false);
+  });
 });

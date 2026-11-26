@@ -159,7 +159,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
   const id = decodeURIComponent(seg[1] ?? '');
   switch (route) {
     case 'GET /health':
-      return json({ status: 'ok', version: '0.1.0-sample', demo: false });
+      return json({ status: 'ok', version: '0.1.0-sample', demo: ds.scenario === 'demo' });
     case 'GET /overview':
       return json(v.overview(ds));
     case 'GET /usage':
@@ -243,6 +243,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
     case 'GET /system':
       return json(v.system(ds, typeof q.lang === 'string' ? q.lang : undefined));
     case 'POST /system/hooks': {
+      if (ds.scenario === 'demo') throw new HttpError(403, 'disabled', 'the hook installer is disabled in demo mode');
       const r = await readBody<HookInstallRequest>(init);
       ds.hooks = {
         ...ds.hooks,
@@ -257,6 +258,7 @@ export async function handle(ds: Dataset, method: string, path: string, params: 
       return json(ds.hooks);
     }
     case 'DELETE /system/hooks':
+      if (ds.scenario === 'demo') throw new HttpError(403, 'disabled', 'the hook installer is disabled in demo mode');
       ds.hooks = { ...ds.hooks, statusline_installed: false, session_hooks_installed: false };
       auditEntry(ds, 'hooks.uninstall', 'settings.json');
       return json(ds.hooks);
@@ -372,7 +374,8 @@ export function createMock(opts: MockOptions = {}): MockServer {
       return await handle(ds, (init.method ?? 'GET').toUpperCase(), path, u.searchParams, init);
     } catch (e) {
       if (e instanceof HttpError) return json({ code: e.code, message: e.message }, e.status);
-      return json({ code: 'internal', message: e instanceof Error ? e.message : String(e) }, 500);
+      console.error(e);
+      return json({ code: 'internal', message: 'The mock server failed on this request' }, 500);
     }
   };
   return { dataset: ds, fetch, eventSource: () => new MockEventSource(ds, opts.eventIntervalMs ?? 12_000) };

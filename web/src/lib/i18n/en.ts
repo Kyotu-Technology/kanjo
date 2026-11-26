@@ -367,6 +367,7 @@ const en = {
       success: 'Connected. A backup of your settings was saved first.',
       already: 'Already connected.',
       failed: 'Kanjo could not change the settings file: {message}',
+      demo: 'This is a demo with sample data, so Kanjo does not connect to Claude Code here and changes nothing in its settings. In a real installation this step adds the status line and the session markers to Claude Code\'s settings in one click.',
     },
     plan: {
       title: 'Which plan do you use?',
@@ -384,6 +385,7 @@ const en = {
       summary_lang: 'Language: {value}',
       summary_privacy: 'Privacy options switched on: {value}',
       summary_connect: 'Claude Code connected: {value}',
+      connect_demo: 'no, not in the demo',
       summary_plan: 'Plan: {value}',
     },
   },

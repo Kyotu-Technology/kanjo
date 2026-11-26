@@ -382,6 +382,7 @@ const pl: Messages = {
       success: 'Połączono. Najpierw zapisano kopię zapasową ustawień.',
       already: 'Już połączono.',
       failed: 'Kanjo nie mogło zmienić pliku ustawień: {message}',
+      demo: 'To demo z danymi przykładowymi, więc Kanjo nie łączy się tu z Claude Code i niczego nie zmienia w jego ustawieniach. W prawdziwej instalacji ten krok jednym kliknięciem dodaje pasek stanu i znaczniki sesji do ustawień Claude Code.',
     },
     plan: {
       title: 'Z jakiego planu korzystasz?',
@@ -399,6 +400,7 @@ const pl: Messages = {
       summary_lang: 'Język: {value}',
       summary_privacy: 'Włączone opcje prywatności: {value}',
       summary_connect: 'Połączenie z Claude Code: {value}',
+      connect_demo: 'nie, nie w demo',
       summary_plan: 'Plan: {value}',
     },
   },

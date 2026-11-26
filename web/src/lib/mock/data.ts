@@ -5,8 +5,8 @@ import type { Alert, AuditEntry, BackupInfo, BudgetInput, HookStatus, IngestStat
  * same request records, so totals agree across pages. All names are invented.
  */
 
-export type Scenario = 'default' | 'onboarding' | 'empty' | 'import' | 'nostatusline' | 'unpriced' | 'unauthorized' | 'redacted' | 'viewer' | 'gateway' | 'expired' | 'tampered';
-export const SCENARIOS: readonly Scenario[] = ['default', 'onboarding', 'empty', 'import', 'nostatusline', 'unpriced', 'unauthorized', 'redacted', 'viewer', 'gateway', 'expired', 'tampered'];
+export type Scenario = 'default' | 'onboarding' | 'demo' | 'empty' | 'import' | 'nostatusline' | 'unpriced' | 'unauthorized' | 'redacted' | 'viewer' | 'gateway' | 'expired' | 'tampered';
+export const SCENARIOS: readonly Scenario[] = ['default', 'onboarding', 'demo', 'empty', 'import', 'nostatusline', 'unpriced', 'unauthorized', 'redacted', 'viewer', 'gateway', 'expired', 'tampered'];
 
 export interface Price {
   input: number;
@@ -384,7 +384,7 @@ export function createDataset(opts: DatasetOptions = {}): Dataset {
   const rand = mulberry32(opts.seed ?? 20261126);
   const generated = scenario === 'empty' ? { sessions: [], records: [] } : generate(now, rand, scenario === 'unpriced');
   const settings = defaultSettings();
-  if (scenario === 'onboarding') {
+  if (scenario === 'onboarding' || scenario === 'demo') {
     settings.onboarding_done = false;
     settings.plan = { kind: 'unknown', monthly_usd: null };
     settings.privacy = { session_titles: false, redact_paths: false, conversation_viewer: false };
@@ -411,7 +411,7 @@ export function createDataset(opts: DatasetOptions = {}): Dataset {
     requests_stored: records.reduce((n, r) => n + r.requests, 0),
     last_event_at: records.length ? records[records.length - 1].ts : null,
   };
-  const connected = scenario !== 'nostatusline' && scenario !== 'onboarding' && scenario !== 'empty';
+  const connected = scenario !== 'nostatusline' && scenario !== 'onboarding' && scenario !== 'demo' && scenario !== 'empty';
   const hooks: HookStatus = {
     statusline_installed: connected,
     statusline_chain: null,

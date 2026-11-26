@@ -11,6 +11,7 @@
   import Brand from './Brand.svelte';
   import ConnectPanel from './ConnectPanel.svelte';
   import PrefSwitches from './PrefSwitches.svelte';
+  import { connectState } from './onboarding';
 
   const STEPS = ['language', 'found', 'privacy', 'connect', 'plan', 'done'] as const;
   type Step = (typeof STEPS)[number];
@@ -69,6 +70,7 @@
       .join(', ') || t('common.none'),
   );
   const hooksOn = $derived(connected || !!(system.data?.hooks.statusline_installed && system.data.hooks.session_hooks_installed));
+  const connectMode = $derived(connectState(app.demo || !!system.data?.demo, hooksOn));
   const LANGS: Lang[] = ['en', 'pl'];
 </script>
 
@@ -144,7 +146,11 @@
       {:else if step === 'connect'}
         <h1 bind:this={heading} tabindex="-1">{t('onboarding.connect.title')}</h1>
         <p class="lede">{t('onboarding.connect.body')}</p>
-        <div class="connect"><ConnectPanel onconnected={() => (connected = true)} /></div>
+        {#if connectMode === 'demo'}
+          <p class="connect demo-note"><Icon name="info" size={16} /><span>{t('onboarding.connect.demo')}</span></p>
+        {:else}
+          <div class="connect"><ConnectPanel onconnected={() => (connected = true)} /></div>
+        {/if}
       {:else if step === 'plan'}
         <h1 bind:this={heading} tabindex="-1">{t('onboarding.plan.title')}</h1>
         <p class="lede">{t('onboarding.plan.body')}</p>
@@ -177,7 +183,7 @@
         <ul class="summary">
           <li><Icon name="check" size={16} strokeWidth={2.4} />{t('onboarding.done.summary_lang', { value: t(`lang.${i18n.lang}`) })}</li>
           <li><Icon name="check" size={16} strokeWidth={2.4} />{t('onboarding.done.summary_privacy', { value: enabledPrivacy })}</li>
-          <li><Icon name="check" size={16} strokeWidth={2.4} />{t('onboarding.done.summary_connect', { value: hooksOn ? t('common.yes') : t('common.no') })}</li>
+          <li><Icon name="check" size={16} strokeWidth={2.4} />{t('onboarding.done.summary_connect', { value: connectMode === 'demo' ? t('onboarding.done.connect_demo') : hooksOn ? t('common.yes') : t('common.no') })}</li>
           <li><Icon name="check" size={16} strokeWidth={2.4} />{t('onboarding.done.summary_plan', { value: tk(`plan.${plan}`) })}</li>
         </ul>
       {/if}
@@ -185,10 +191,10 @@
       <footer class="nav">
         {#if index > 0}<Button variant="ghost" icon="chevron_left" onclick={back}>{t('common.back')}</Button>{:else}<span></span>{/if}
         <div class="right">
-          {#if step === 'connect' && !hooksOn}<Button variant="ghost" onclick={next}>{t('common.skip')}</Button>{/if}
+          {#if step === 'connect' && connectMode === 'open'}<Button variant="ghost" onclick={next}>{t('common.skip')}</Button>{/if}
           {#if step === 'done'}
             <Button variant="primary" size="lg" busy={saving} onclick={next}>{t('onboarding.done.open')}</Button>
-          {:else if !(step === 'connect' && !hooksOn)}
+          {:else if !(step === 'connect' && connectMode === 'open')}
             <Button variant="primary" busy={saving} onclick={next}>{t('common.next')}</Button>
           {/if}
         </div>
@@ -455,6 +461,17 @@
   }
   .connect {
     margin-top: var(--sp-6);
+  }
+  .demo-note {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: flex-start;
+    max-width: 60ch;
+    color: var(--ink-2);
+  }
+  .demo-note :global(svg) {
+    flex: none;
+    margin-top: 3px;
   }
   .summary {
     display: flex;

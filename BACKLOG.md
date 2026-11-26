@@ -54,10 +54,10 @@ Size: S. Depends: K-006, K-008.
 Why: the documentation describes a channel only once it exists.
 Done when: for each live channel, docs/install.md (upgrade, then kanjo service install; the order of removal), docs/release.md (the sentence that Kanjo is not published to a package manager, and an "After a release" checklist), both READMEs, CHANGELOG.md, docs/security/iso27001.md and the trust points of the threat model describe it.
 
-### K-026 CodeQL alerts in test and mock code
+### K-026 Close the CodeQL alerts in test and mock code
 Size: S.
-Why: all five open CodeQL alerts are in test or mock code and none in shipped code, but open alerts read badly on a project that makes security claims.
-Done when: the strip regexes in web/src/csp.test.ts are case-insensitive, alerts 1-3 are closed by that fix or dismissed with a reason, and alerts 4-5 are dismissed.
+Why: the five alerts were all in test or mock code; the tag-stripping expressions in web/src/csp.test.ts and the error body of the mock were changed, and the alerts close only after a CodeQL run on main.
+Done when: after that run, alerts 1-3 and 5 are closed or dismissed with a reason, and alert 4 (random latency in the mock) is dismissed as used in tests.
 
 ### K-029 Verify the published release by hand on Linux
 Size: S.
@@ -68,11 +68,6 @@ Done when: cosign verify-blob, gh attestation verify and install.sh with cosign 
 Size: M. Depends: K-010.
 Why: the published release has not been installed by hand on macOS, and the session shows whether K-004 is enough there.
 Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, a brew install from the tap has run with the recorded path noted, after v0.2.0 brew upgrade has kept that path, and docs/status.md states the results.
-
-### K-025 Demo: hide or explain the Connect step
-Size: S.
-Why: in kanjo demo the first-run guide offers a Connect step that the demo server refuses, and the demo is the first thing a new user runs.
-Done when: the guide hides the step or explains it when the server reports it disabled, in English and Polish, and the limitation sentences in docs/status.md and in the History backfill row of docs/feature-status.md are gone.
 
 ### K-024 kanjo token rotate
 Size: M.
