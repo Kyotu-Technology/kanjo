@@ -44,15 +44,10 @@ Size: S. Depends: K-006, K-008.
 Why: the documentation describes a channel only once it exists.
 Done when: for each live channel, docs/install.md (upgrade, then kanjo service install; the order of removal), docs/release.md (the sentence that Kanjo is not published to a package manager, and an "After a release" checklist), both READMEs, CHANGELOG.md, docs/security/iso27001.md and the trust points of the threat model describe it.
 
-### K-026 Close the CodeQL alerts in test and mock code
+### K-029 Run the systemd user service and the sandboxed-browser sign-in for real
 Size: S.
-Why: the five alerts were all in test or mock code; the tag-stripping expressions in web/src/csp.test.ts and the error body of the mock were changed, and the alerts close only after a CodeQL run on main.
-Done when: after that run, alerts 1-3 and 5 are closed or dismissed with a reason, and alert 4 (random latency in the mock) is dismissed as used in tests.
-
-### K-029 Finish verifying the published release by hand on Linux
-Size: S.
-Why: the cosign signature has been verified by hand and by install.sh, but the provenance attestations have not, and the systemd user service and the sign-in from a sandboxed browser have not run for real.
-Done when: gh attestation verify has run against the published release, the systemd user service and the sign-in from a Snap or Flatpak browser have run in a virtual machine with a desktop, and docs/status.md states the results.
+Why: the systemd user service and the sign-in from a Snap or Flatpak browser are covered only by tests that never call systemctl or open a real sandboxed browser.
+Done when: both have run in a virtual machine with a desktop and docs/status.md states the results.
 
 ### K-031 macOS session
 Size: M. Depends: K-006.

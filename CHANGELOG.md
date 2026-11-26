@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.2.0-rc.1] - 2026-11-26
+
 ### Added
 
 - `kanjo token rotate` replaces the access token with a new random one and records the rotation in the audit log. A running server keeps accepting the old token, and the browsers signed in with it, until it restarts; the command says whether a server is running and how to restart it.
