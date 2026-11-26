@@ -11,3 +11,6 @@
 /.idea
 /.vscode
 /.grok-imagine
+/.claude/settings.local.json
+/.claude/worktrees/
+/CLAUDE.local.md

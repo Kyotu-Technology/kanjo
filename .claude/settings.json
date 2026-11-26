@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo fmt --all)",
+      "Bash(cargo fmt --all --check)",
+      "Bash(cargo check *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(cargo deny *)",
+      "Bash(npm run check)",
+      "Bash(npm test)",
+      "Bash(npm run build)",
+      "Bash(scripts/ci-web-stub.sh)",
+      "Bash(scripts/gen-bindings.sh)",
+      "Bash(scripts/cargo-audit.sh)",
+      "Bash(sh scripts/test-install.sh)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(git tag *)",
+      "Bash(gh release *)",
+      "Bash(gh workflow run *)",
+      "Bash(gh pr merge *)",
+      "Bash(cargo publish *)",
+      "Bash(cargo add *)",
+      "Bash(cargo install *)",
+      "Bash(npm install *)",
+      "Bash(npm publish *)",
+      "Read(~/.claude/projects/**/*.jsonl)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)"
+    ]
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
+}

@@ -39,3 +39,7 @@ Rust 2021, `cargo fmt` (max width 140 via rustfmt.toml), `cargo clippy --all-tar
 - `scripts/gen-bindings.sh` regenerates `web/src/lib/api/bindings` and `contract.ts` after a change to `api.rs`
 - `cd web && npm ci && npm run build` builds the UI into `web/dist`
 - `cargo run -p kanjo -- demo` serves synthetic data without touching `~/.claude`
+
+## Agent configuration
+
+`.claude/rules/` holds short rules scoped to one part of the tree each; they load when a matching file is opened. `.claude/skills/` holds procedures: `preflight` (the checks CI runs), `api-change`, `add-migration`, `parser-fixture`, `run-demo`, and the manually invoked `update-pricing` and `release-prep`. `.claude/agents/invariant-reviewer.md` reviews a diff against the rules above. `.claude/settings.json` carries shared permissions and two language-server plugins; no hooks and no MCP servers are committed, and none is added without discussion in an issue first. Background reading is in `docs/architecture.md`, `docs/api.md`, `docs/security/threat-model.md`, `docs/security/data-inventory.md` and `web/README.md`. Run `preflight` before reporting a change as done.
