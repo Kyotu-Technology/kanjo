@@ -70,7 +70,9 @@ impl P<'_> {
     fn when(&self, lang: Lang, k: &str) -> String {
         let ts = self.i(k);
         let created = self.opt_i("evaluated_at").or(self.now).unwrap_or(ts);
-        when(lang, ts, created, self.now.unwrap_or(created), self.i("tz_offset_min"))
+        let base = self.i("tz_offset_min");
+        let offset = self.opt_i(&format!("{k}_tz_offset_min")).unwrap_or(base);
+        when(lang, ts, created, self.now.unwrap_or(created), (offset, base))
     }
 
     fn date(&self, lang: Lang, k: &str) -> String {
@@ -203,16 +205,17 @@ fn date_words(lang: Lang, y: i64, m: i64, d: i64, this_year: i64) -> String {
 /// Local day and time of `ts` relative to `created`, the day the alert was evaluated:
 /// "today at 14:00", "on Thursday at 14:00", "on 3 December at 09:00". When `read`
 /// falls on a later local day than `created`, the moment is always written as a date.
-fn when(lang: Lang, ts: i64, created: i64, read: i64, tz_offset_min: i64) -> String {
-    let off = tz_offset_min * MINUTE_MS;
-    let local_day = |t: i64| (t + off).div_euclid(DAY_MS);
-    let (day, ref_day) = (local_day(ts), local_day(created));
-    let delta = if local_day(read) == ref_day { Some(day - ref_day) } else { None };
+/// `offsets` are the UTC offsets in minutes in force at `ts` and at `created`.
+fn when(lang: Lang, ts: i64, created: i64, read: i64, offsets: (i64, i64)) -> String {
+    let (off, ref_off) = (offsets.0 * MINUTE_MS, offsets.1 * MINUTE_MS);
+    let local_day = |t: i64, o: i64| (t + o).div_euclid(DAY_MS);
+    let (day, ref_day) = (local_day(ts, off), local_day(created, ref_off));
+    let delta = if local_day(read, ref_off) == ref_day { Some(day - ref_day) } else { None };
     let minutes = (ts + off).rem_euclid(DAY_MS) / MINUTE_MS;
     let time = format!("{:02}:{:02}", minutes / 60, minutes % 60);
     let weekday = (day + 3).rem_euclid(7) as usize;
     let civil = utc_datetime(ts + off);
-    let date = date_words(lang, civil.year() as i64, civil.month() as i64, civil.day() as i64, utc_datetime(read + off).year() as i64);
+    let date = date_words(lang, civil.year() as i64, civil.month() as i64, civil.day() as i64, utc_datetime(read + ref_off).year() as i64);
     match lang {
         Lang::En => match delta {
             Some(0) => format!("today at {time}"),
@@ -511,12 +514,25 @@ mod tests {
         // 2026-11-26T10:00Z is a Thursday; 13:00Z is 14:00 in Warsaw winter time.
         let now = 1_795_687_200_000;
         let thu_13z = now + 3 * 3_600_000;
-        assert_eq!(when(Lang::En, thu_13z, now, now, 60), "today at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, now, 60), "jutro o 14:00");
-        assert_eq!(when(Lang::En, thu_13z + 2 * DAY_MS, now, now, 60), "on Saturday at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z + 5 * DAY_MS - 5 * 3_600_000, now, now, 60), "we wtorek o 09:00");
-        assert_eq!(when(Lang::En, thu_13z + 7 * DAY_MS, now, now, 60), "on 3 December at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z - 3 * DAY_MS, now, now, 60), "23 listopada o 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, now, (60, 60)), "today at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, now, (60, 60)), "jutro o 14:00");
+        assert_eq!(when(Lang::En, thu_13z + 2 * DAY_MS, now, now, (60, 60)), "on Saturday at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + 5 * DAY_MS - 5 * 3_600_000, now, now, (60, 60)), "we wtorek o 09:00");
+        assert_eq!(when(Lang::En, thu_13z + 7 * DAY_MS, now, now, (60, 60)), "on 3 December at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z - 3 * DAY_MS, now, now, (60, 60)), "23 listopada o 14:00");
+    }
+
+    #[test]
+    fn a_reset_after_a_clock_change_uses_its_own_offset() {
+        // Evaluated on Saturday 2026-10-24 12:00Z (14:00 Warsaw summer time); the reset on
+        // Monday 26 October 10:00Z is 11:00 in winter time, an hour off with the stored offset alone.
+        let now = 1_792_843_200_000;
+        let mut params = json!({ "window": "five_hour", "threshold": 80.0, "used_pct": 81.0,
+            "resets_at": 1_793_008_800_000_i64, "evaluated_at": now, "tz_offset_min": 120 });
+        let style = Style { lang: "en", currency: &CurrencySettings::default(), now: Some(now) };
+        assert!(render_styled(AlertKind::LimitThreshold, &params, &style).1.ends_with("It resets on Monday at 12:00."));
+        params["resets_at_tz_offset_min"] = json!(60);
+        assert!(render_styled(AlertKind::LimitThreshold, &params, &style).1.ends_with("It resets on Monday at 11:00."));
     }
 
     #[test]
@@ -524,10 +540,10 @@ mod tests {
         let now = 1_795_687_200_000;
         let thu_13z = now + 3 * 3_600_000;
         let next_day = now + DAY_MS;
-        assert_eq!(when(Lang::En, thu_13z, now, now + 12 * 3_600_000, 60), "today at 14:00");
-        assert_eq!(when(Lang::En, thu_13z, now, next_day, 60), "on 26 November at 14:00");
-        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, next_day, 60), "27 listopada o 14:00");
-        assert_eq!(when(Lang::En, thu_13z, now, now + 60 * DAY_MS, 60), "on 26 November 2026 at 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, now + 12 * 3_600_000, (60, 60)), "today at 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, next_day, (60, 60)), "on 26 November at 14:00");
+        assert_eq!(when(Lang::Pl, thu_13z + DAY_MS, now, next_day, (60, 60)), "27 listopada o 14:00");
+        assert_eq!(when(Lang::En, thu_13z, now, now + 60 * DAY_MS, (60, 60)), "on 26 November 2026 at 14:00");
     }
 
     #[test]

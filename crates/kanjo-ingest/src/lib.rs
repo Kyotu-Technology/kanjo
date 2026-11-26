@@ -277,10 +277,15 @@ impl Ingestor {
 
     /// Forgets every transcript cursor, so the next backfill reads all history
     /// again. Stored requests stay; re-read records deduplicate, and records
-    /// that were purged or removed by retention stay out (purge marks).
+    /// that were purged or removed by retention stay out (purge marks). The
+    /// set-aside counts start over, since the rescan counts every record again.
     pub fn rescan_from_scratch(&self) -> Result<()> {
         let _pass = lock(&self.pass);
-        self.store.write(|tx| Ok(tx.execute("DELETE FROM ingest_files WHERE kind IN ('transcript', 'subagent')", [])?))?;
+        self.store.write(|tx| {
+            tx.execute("DELETE FROM ingest_files WHERE kind IN ('transcript', 'subagent')", [])?;
+            tx.execute("DELETE FROM quarantine", [])?;
+            Ok(())
+        })?;
         lock(&self.refs).clear();
         Ok(())
     }

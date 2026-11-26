@@ -15,6 +15,11 @@ test('the purge dialog and the rescan help promise what purge marks deliver', ()
   expect(en.system.ingest.rescan_help).toMatch(/deleted stays deleted/);
 });
 
+test('the encryption note says what the doctor says: an existing database cannot be encrypted in place', () => {
+  expect(en.system.data.unencrypted_note).toMatch(/cannot encrypt an existing database/);
+  expect(pl.system.data.unencrypted_note).toMatch(/nie umie zaszyfrować istniejącej bazy/);
+});
+
 test('the sign-in text does not call the permanent access key one-time', () => {
   expect(en.auth.why).not.toMatch(/one-time/i);
   expect(pl.auth.why).not.toMatch(/jednorazow/i);

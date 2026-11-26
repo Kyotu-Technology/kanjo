@@ -108,10 +108,14 @@ impl Fx {
 #[tokio::test]
 async fn every_get_route_answers_with_its_documented_type() {
     let fx = demo().await;
-    let health: Value = fx.get("/api/v1/health").await;
-    assert_eq!(health["status"], "ok");
+    let health: Health = fx.get("/api/v1/health").await;
+    assert_eq!((health.status.as_str(), health.demo), ("ok", true));
     let overview: Overview = fx.get("/api/v1/overview").await;
     assert!(overview.month.usage.requests > 0);
+    let sys: SystemInfo = fx.get("/api/v1/system").await;
+    assert!(sys.demo);
+    assert!(sys.ingest.requests_stored >= overview.month.usage.requests, "ingest figures come from the database: {:?}", sys.ingest);
+    assert_eq!(sys.ingest.last_event_at, overview.data.last_request_at);
     let _: UsageReport = fx.get("/api/v1/usage?group=week").await;
     let _: Breakdown = fx.get("/api/v1/breakdown?by=model").await;
     let list: SessionList = fx.get("/api/v1/sessions?sort=recent&limit=5").await;
@@ -157,6 +161,40 @@ async fn every_get_route_answers_with_its_documented_type() {
     let _: Vec<BackupInfo> = fx.get("/api/v1/system/backups").await;
     let _: AuditPage = fx.get("/api/v1/audit?limit=5").await;
     let _: Vec<SearchResult> = fx.get("/api/v1/search?q=a").await;
+}
+
+#[tokio::test]
+async fn after_a_restart_the_import_figures_come_from_the_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let opts = options(dir.path(), false);
+    std::fs::create_dir_all(&opts.paths.claude_dir).unwrap();
+    let ts = kanjo_core::time::now_ms() - 3_600_000;
+    {
+        let (store, _) = kanjo_ops::open_store(&opts.paths, &opts.config).unwrap();
+        store
+            .write(|tx| {
+                let project = kanjo_core::store::write::upsert_project(tx, "-work-restart", Some("/work/restart"), ts)?;
+                let row = kanjo_core::model::RequestRow {
+                    message_id: "msg_restart".into(),
+                    session_id: "s-restart".into(),
+                    project_id: project,
+                    ts,
+                    model: "claude-opus-5-5".into(),
+                    ..Default::default()
+                };
+                kanjo_core::store::write::insert_request(tx, &row, kanjo_core::pricing::PriceTable::embedded())
+            })
+            .unwrap();
+    }
+    let state = AppState::open(&opts).await.unwrap();
+    state.set_port(PORT);
+    let token = kanjo_ops::token::load_or_create(&opts.paths).unwrap();
+    let fx = Fx { app: router(state.clone()), state, token, _dir: dir };
+    let health: Health = fx.get("/api/v1/health").await;
+    assert!(!health.demo);
+    let sys: SystemInfo = fx.get("/api/v1/system").await;
+    assert!(!sys.demo);
+    assert_eq!((sys.ingest.requests_stored, sys.ingest.last_event_at), (1, Some(ts)));
 }
 
 #[tokio::test]

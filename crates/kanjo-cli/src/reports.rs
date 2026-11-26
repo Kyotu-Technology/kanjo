@@ -5,7 +5,6 @@ use crate::fmt::{self, Align, Table};
 use crate::i18n::Lang;
 use kanjo_analytics::export;
 use kanjo_core::api::{Dimension, Granularity, Query, Usage};
-use kanjo_core::time::DAY_MS;
 use kanjo_core::Ctx;
 use serde_json::json;
 
@@ -19,6 +18,9 @@ pub enum Report {
 }
 
 /// Local midnight of a `YYYY-MM-DD` or `YYYYMMDD` date.
+/// Projects listed under each block by `kanjo blocks --breakdown`.
+const BLOCK_TOP_PROJECTS: usize = 3;
+
 pub fn parse_date(lang: Lang, ctx: &Ctx, text: &str) -> CliResult<i64> {
     let t = text.trim();
     let compact = || if t.bytes().all(|b| b.is_ascii_digit()) { jiff::civil::Date::strptime("%Y%m%d", t).ok() } else { None };
@@ -28,8 +30,7 @@ pub fn parse_date(lang: Lang, ctx: &Ctx, text: &str) -> CliResult<i64> {
             tr!(lang, "write dates as YYYY-MM-DD, for example 2026-11-01.", "podaj datę w formacie RRRR-MM-DD, na przykład 2026-11-01."),
         )
     })?;
-    let utc_midnight = kanjo_core::time::utc_millis(date.at(0, 0, 0, 0));
-    Ok(utc_midnight - ctx.tz_offset_min as i64 * 60_000)
+    Ok(ctx.from_local(date.at(0, 0, 0, 0)))
 }
 
 pub fn build_query(app: &mut App, ctx: &Ctx, f: &Filters) -> CliResult<Query> {
@@ -39,7 +40,7 @@ pub fn build_query(app: &mut App, ctx: &Ctx, f: &Filters) -> CliResult<Query> {
         q.from = Some(parse_date(lang, ctx, s)?);
     }
     if let Some(u) = &f.until {
-        q.to = Some(parse_date(lang, ctx, u)? + DAY_MS);
+        q.to = Some(ctx.day_shift(parse_date(lang, ctx, u)?, 1));
     }
     if let (Some(from), Some(to)) = (q.from, q.to) {
         if from >= to {
@@ -88,7 +89,7 @@ pub fn project_id(app: &mut App, ctx: &Ctx, name: &str) -> CliResult<i64> {
 fn period_query(report: Report, ctx: &Ctx, mut q: Query) -> Query {
     if q.from.is_none() {
         match report {
-            Report::Weekly => q.from = Some(ctx.week_start_of(q.to.unwrap_or(ctx.now)) - 11 * 7 * DAY_MS),
+            Report::Weekly => q.from = Some(ctx.day_shift(ctx.week_start_of(q.to.unwrap_or(ctx.now)), -11 * 7)),
             Report::Monthly => q.from = Some(ctx.month_shift(q.to.unwrap_or(ctx.now), -11)),
             _ => {}
         }
@@ -318,6 +319,11 @@ pub fn run(app: &mut App, report: Report, args: &ReportArgs) -> CliResult<()> {
                         row.extend(token_cells(lang, &m.usage));
                         t.row(row);
                     }
+                    for p in b.by_project.iter().take(BLOCK_TOP_PROJECTS) {
+                        let mut row = vec![String::new(), String::new(), String::new(), tr!(lang, "- project {}", "- projekt {}", p.label)];
+                        row.extend(token_cells(lang, &p.usage));
+                        t.row(row);
+                    }
                 }
             }
             let empty = t.is_empty();
@@ -373,6 +379,7 @@ pub fn export_view(
                 ExportBy::Branch => Dimension::Branch,
                 ExportBy::Client => Dimension::Client,
                 ExportBy::Session => Dimension::Session,
+                ExportBy::QuerySource => Dimension::QuerySource,
             });
             let r = kanjo_analytics::breakdown(&store, &ctx, &q)?;
             if csv {

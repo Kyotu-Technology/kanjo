@@ -1,7 +1,7 @@
 use kanjo_core::api::{Granularity, Query, Tokens, Usage};
 use kanjo_core::settings::Settings;
 use kanjo_core::store::write::alias;
-use kanjo_core::time::{hour_floor, DAY_MS, HOUR_MS, MINUTE_MS};
+use kanjo_core::time::{hour_floor, HOUR_MS};
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::types::Value;
 use rusqlite::Connection;
@@ -116,7 +116,7 @@ pub(crate) struct Range {
 /// `q.from`/`q.to`, defaulting to the last `days` local days up to now.
 pub(crate) fn range(ctx: &Ctx, q: &Query, days: i64) -> Result<Range> {
     let to = q.to.unwrap_or(ctx.now);
-    let from = q.from.unwrap_or_else(|| ctx.day_start(to) - (days - 1) * DAY_MS);
+    let from = q.from.unwrap_or_else(|| ctx.day_shift(to, -(days - 1)));
     if from > to {
         return Err(Error::Invalid("from must not be after to".into()));
     }
@@ -318,18 +318,10 @@ pub(crate) fn ceil_hour(ts: i64) -> i64 {
     }
 }
 
-fn offset_ms(ctx: &Ctx) -> i64 {
-    ctx.tz_offset_min as i64 * MINUTE_MS
-}
-
-fn local(ctx: &Ctx, ts: i64) -> jiff::civil::DateTime {
-    kanjo_core::time::utc_datetime(ts + offset_ms(ctx))
-}
-
 /// Start of the local bucket of granularity `g` containing `ts`.
 pub(crate) fn bucket_start(ctx: &Ctx, g: Granularity, ts: i64) -> i64 {
     match g {
-        Granularity::Hour => (ts + offset_ms(ctx)).div_euclid(HOUR_MS) * HOUR_MS - offset_ms(ctx),
+        Granularity::Hour => ctx.hour_start(ts),
         Granularity::Day => ctx.day_start(ts),
         Granularity::Week => ctx.week_start_of(ts),
         Granularity::Month => ctx.month_start(ts),
@@ -339,8 +331,8 @@ pub(crate) fn bucket_start(ctx: &Ctx, g: Granularity, ts: i64) -> i64 {
 pub(crate) fn bucket_next(ctx: &Ctx, g: Granularity, start: i64) -> i64 {
     match g {
         Granularity::Hour => start + HOUR_MS,
-        Granularity::Day => start + DAY_MS,
-        Granularity::Week => start + 7 * DAY_MS,
+        Granularity::Day => ctx.day_shift(start, 1),
+        Granularity::Week => ctx.day_shift(start, 7),
         Granularity::Month => ctx.month_shift(start, 1),
     }
 }
@@ -348,25 +340,18 @@ pub(crate) fn bucket_next(ctx: &Ctx, g: Granularity, start: i64) -> i64 {
 /// `YYYY-MM-DD HH:00`, `YYYY-MM-DD`, `YYYY-Www` (ISO week of the Monday inside the bucket) or `YYYY-MM`.
 pub(crate) fn bucket_label(ctx: &Ctx, g: Granularity, start: i64) -> String {
     match g {
-        Granularity::Hour => local(ctx, start).strftime("%Y-%m-%d %H:00").to_string(),
+        Granularity::Hour => ctx.local(start).strftime("%Y-%m-%d %H:00").to_string(),
         Granularity::Day => ctx.date_label(start),
         Granularity::Week => {
-            let monday = start + ((7 - ctx.week_start as i64) % 7) * DAY_MS;
-            local(ctx, monday).strftime("%G-W%V").to_string()
+            let monday = ctx.day_shift(start, (7 - ctx.week_start as i64) % 7);
+            ctx.local(monday).strftime("%G-W%V").to_string()
         }
-        Granularity::Month => local(ctx, start).strftime("%Y-%m").to_string(),
+        Granularity::Month => ctx.local(start).strftime("%Y-%m").to_string(),
     }
 }
 
 pub(crate) fn minute_label(ctx: &Ctx, ts: i64) -> String {
-    local(ctx, ts).strftime("%Y-%m-%d %H:%M").to_string()
-}
-
-/// Local weekday (0 = Monday) and hour of `ts`.
-pub(crate) fn dow_hour(ctx: &Ctx, ts: i64) -> (u8, u8) {
-    let l = ts + offset_ms(ctx);
-    let days = l.div_euclid(DAY_MS);
-    ((days + 3).rem_euclid(7) as u8, (l.rem_euclid(DAY_MS) / HOUR_MS) as u8)
+    ctx.local(ts).strftime("%Y-%m-%d %H:%M").to_string()
 }
 
 /// Bucket starts covering `[from, to)`; an error when the range would produce an absurd number of buckets.

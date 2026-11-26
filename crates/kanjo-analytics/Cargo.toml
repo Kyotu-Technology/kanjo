@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-homepage.workspace = true
 
 [dependencies]
 jiff = { version = "1.0.3", default-features = false, features = ["std"] }

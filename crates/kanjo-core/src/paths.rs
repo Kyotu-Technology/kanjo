@@ -62,6 +62,11 @@ impl Paths {
     pub fn login_dir(&self) -> PathBuf {
         self.home.join("login")
     }
+    /// Short-lived owner-only pages that pass a sign-in URL to the browser, so
+    /// the opener's command line names a file instead of the URL.
+    pub fn open_dir(&self) -> PathBuf {
+        self.home.join("open")
+    }
     pub fn log_dir(&self) -> PathBuf {
         self.home.join("logs")
     }

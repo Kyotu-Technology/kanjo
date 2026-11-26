@@ -12,7 +12,7 @@ export interface UsageFilters {
 }
 
 const GROUPS: readonly Granularity[] = ['hour', 'day', 'week', 'month'];
-export const DIMS: readonly Dimension[] = ['project', 'model', 'agent', 'client', 'branch', 'session', 'skill', 'mcp', 'tool'];
+export const DIMS: readonly Dimension[] = ['project', 'model', 'agent', 'client', 'branch', 'session', 'query_source', 'skill', 'mcp', 'tool'];
 export const ESTIMATED: readonly Dimension[] = ['skill', 'mcp', 'tool'];
 
 /** Reads the page state from the hash query, so a link or a reload shows the same view. */

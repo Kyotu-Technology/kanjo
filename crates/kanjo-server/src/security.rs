@@ -261,6 +261,7 @@ impl Inner {
     }
 
     fn take_login_code(&self, given: &str) -> bool {
+        kanjo_setup::server_file::remove_launch_page(&self.paths, given);
         let mut codes = lock(&self.login_codes);
         let now = Instant::now();
         codes.retain(|(_, until)| *until > now);

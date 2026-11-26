@@ -59,11 +59,11 @@ fn main() -> ExitCode {
 fn dispatch(command: Command, g: &Global, lang: &mut Lang) -> CliResult<()> {
     match command {
         Command::Statusline => {
-            fast::statusline(g.home.clone(), g.claude_dir.clone(), g.no_color);
+            let _ = fast::statusline(g.home.clone(), g.claude_dir.clone(), g.no_color);
             return Ok(());
         }
         Command::Hook => {
-            fast::hook(g.home.clone(), g.claude_dir.clone());
+            let _ = fast::hook(g.home.clone(), g.claude_dir.clone());
             return Ok(());
         }
         Command::Completions { shell } => {

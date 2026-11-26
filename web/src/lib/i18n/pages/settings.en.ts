@@ -107,6 +107,7 @@ export default {
     desktop_help: 'Kanjo shows a system notification, even when this page is closed, while Kanjo runs.',
     bell: 'Terminal bell',
     bell_help: 'Rings once per warning in the terminal where kanjo serve runs in the foreground. It does not ring inside Claude Code, and it stays silent while Kanjo runs as a background service.',
+    bell_unavailable: 'Not available: Kanjo runs without a terminal of its own (as a background service), so there is nothing to ring. Run kanjo serve in a terminal to use it.',
     in_app: 'Warnings always appear on the Alerts page and as a dot on the bell at the top.',
   },
   privacy: {

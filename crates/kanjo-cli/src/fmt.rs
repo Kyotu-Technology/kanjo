@@ -52,9 +52,8 @@ pub fn date(ctx: &Ctx, ts: i64) -> String {
 }
 
 pub fn clock(ctx: &Ctx, ts: i64) -> String {
-    let local = ts + ctx.tz_offset_min as i64 * MINUTE_MS;
-    let mins = local.rem_euclid(DAY_MS) / MINUTE_MS;
-    format!("{:02}:{:02}", mins / 60, mins % 60)
+    let local = ctx.local(ts);
+    format!("{:02}:{:02}", local.hour(), local.minute())
 }
 
 pub fn date_time(ctx: &Ctx, ts: i64) -> String {

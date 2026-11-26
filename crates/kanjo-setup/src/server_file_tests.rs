@@ -121,3 +121,41 @@ fn starting_clears_old_codes() {
     let _held = announce(&paths, &rec).unwrap();
     assert!(!paths.login_dir().join(code).exists());
 }
+
+#[test]
+fn the_launch_page_forwards_to_the_code_url_and_goes_away() {
+    let (_dir, paths, l) = setup();
+    let rec = record(&paths, l.local_addr().unwrap(), true);
+    let now = kanjo_core::time::now_ms();
+    let url = login_url(&paths, &rec, now).unwrap();
+    let code = login_code_of(&url).unwrap().to_string();
+    let page = launch_page(&paths, &url).unwrap();
+    assert_eq!(page.parent().unwrap(), paths.open_dir());
+    assert!(!page.to_string_lossy().contains(&code), "the path an opener shows must not carry the code");
+    let html = std::fs::read_to_string(&page).unwrap();
+    assert!(html.contains(&format!("content=\"0;url={url}\"")), "{html}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&page).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(paths.open_dir()).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    assert!(claim_login_code(&paths, &rec.instance, &code, now));
+    assert!(!page.exists(), "redeeming the code removes its page");
+    assert!(retire_launch_page(&paths, &page, &code, std::time::Duration::from_secs(30)), "a redeemed code returns at once");
+
+    let odd = format!("http://127.0.0.1:1/?a=\"><script>&b='x'&token={}", "a".repeat(64)).replace("&token=", "?token=");
+    let page = launch_page(&paths, &odd).unwrap();
+    let html = std::fs::read_to_string(&page).unwrap();
+    assert!(html.contains("?a=&quot;&gt;&lt;script&gt;&amp;b=&#39;x&#39;") && !html.contains("<script>"), "{html}");
+    assert!(launch_page(&paths, "http://127.0.0.1:1/").is_err(), "a URL without a code is opened directly, not through a page");
+
+    let url = login_url(&paths, &rec, now).unwrap();
+    let code = login_code_of(&url).unwrap().to_string();
+    let page = launch_page(&paths, &url).unwrap();
+    assert!(!retire_launch_page(&paths, &page, &code, std::time::Duration::from_millis(300)), "not redeemed in time");
+    assert!(!page.exists(), "an unredeemed page goes after the limit");
+    let page = launch_page(&paths, &url).unwrap();
+    clear_login_codes(&paths);
+    assert!(!page.exists(), "a starting server clears old pages");
+}

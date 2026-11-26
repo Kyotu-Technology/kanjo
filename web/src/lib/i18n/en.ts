@@ -78,6 +78,8 @@ const en = {
     notifications: 'Notifications',
     mock: 'Sample data',
     mock_help: 'You are looking at invented sample data, not your own usage.',
+    demo: 'Demo data',
+    demo_help: 'This is kanjo demo: every figure is invented sample data, and nothing on this computer was read.',
   },
   lang: {
     auto: 'Match browser',
@@ -412,6 +414,14 @@ const en = {
         branch: 'Branch',
         client: 'Client',
         session: 'Session',
+        query_source: 'Request source',
+      },
+      source: {
+        none: 'Not recorded',
+        main: 'Main conversation',
+        compact: 'Compaction (summary of a long conversation)',
+        agent: 'Helper agent',
+        title: 'Session title',
       },
       group: {
         hour: 'Hourly',

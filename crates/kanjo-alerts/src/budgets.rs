@@ -3,7 +3,6 @@
 use crate::thresholds::BUDGET_MIN_ELAPSED_MS;
 use kanjo_core::api::{Budget, BudgetInput, BudgetPeriod, BudgetScope, BudgetState};
 use kanjo_core::settings::Settings;
-use kanjo_core::time::DAY_MS;
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -168,11 +167,11 @@ pub(crate) fn period_bounds(ctx: &Ctx, period: BudgetPeriod) -> (i64, i64) {
     match period {
         BudgetPeriod::Day => {
             let start = ctx.day_start(ctx.now);
-            (start, start + DAY_MS)
+            (start, ctx.day_shift(start, 1))
         }
         BudgetPeriod::Week => {
             let start = ctx.week_start_of(ctx.now);
-            (start, start + 7 * DAY_MS)
+            (start, ctx.day_shift(start, 7))
         }
         BudgetPeriod::Month => (ctx.month_start(ctx.now), ctx.month_shift(ctx.now, 1)),
     }

@@ -22,8 +22,7 @@ pub const DEMO_MARKER: &str = "demo.seed";
 /// `now`, bucketed by the local time zone of this machine. The same seed
 /// gives the same data. Refuses to touch a database that holds real usage.
 pub fn populate(store: &Store, now: i64, days: u32, seed: u64) -> Result<()> {
-    let offset = kanjo_core::time::local_offset_min(now);
-    populate_in(store, &Ctx { now, tz_offset_min: offset, week_start: 0 }, days, seed)
+    populate_in(store, &Ctx::system().at(now), days, seed)
 }
 
 /// `populate` with an explicit time context (`ctx.now` is the end of the data).
@@ -318,7 +317,7 @@ impl Gen<'static> {
     fn new(tx: &Connection, ctx: &Ctx, days: i64, seed: u64) -> Result<Gen<'static>> {
         let mut rng = Rng(seed ^ 0x6B61_6E6A_6F00_0000);
         let tag = rng.hex(8);
-        let first = ctx.day_start(ctx.now) - (days - 1) * DAY_MS;
+        let first = ctx.day_shift(ctx.now, -(days - 1));
         let mut project_ids = Vec::new();
         for p in PROJECTS {
             let id = write::upsert_project(tx, &format!("-home-dev-work-{}", p.slug), Some(&format!("/home/dev/work/{}", p.slug)), first)?;
@@ -327,7 +326,7 @@ impl Gen<'static> {
         }
         Ok(Gen {
             rng,
-            ctx: *ctx,
+            ctx: ctx.clone(),
             days,
             tag,
             n: 0,
@@ -344,8 +343,7 @@ impl Gen<'static> {
 
 impl Gen<'_> {
     fn weekday(&self, day_start: i64) -> i64 {
-        let local = (day_start + self.ctx.tz_offset_min as i64 * MINUTE_MS).div_euclid(DAY_MS);
-        (local + 3).rem_euclid(7)
+        self.ctx.weekday(day_start) as i64
     }
 
     fn history(&mut self) {
@@ -354,13 +352,13 @@ impl Gen<'_> {
         let reserve = now - 8 * HOUR_MS;
         let spike = {
             let candidates: Vec<i64> = (0..self.days)
-                .filter(|d| *d >= self.days - 14 && *d <= self.days - 5 && self.weekday(today - (self.days - 1 - d) * DAY_MS) < 5)
+                .filter(|d| *d >= self.days - 14 && *d <= self.days - 5 && self.weekday(self.ctx.day_shift(today, d - (self.days - 1))) < 5)
                 .collect();
             (!candidates.is_empty()).then(|| *self.rng.pick(&candidates))
         };
         let mut specs = Vec::new();
         for d in 0..self.days {
-            let day = today - (self.days - 1 - d) * DAY_MS;
+            let day = self.ctx.day_shift(today, d - (self.days - 1));
             let dow = self.weekday(day);
             let weekend = dow >= 5;
             let is_spike = spike == Some(d);
@@ -512,6 +510,14 @@ impl Gen<'_> {
             agent_type: agent.map(|a| a.1.to_string()),
             stop_reason: Some(stop.to_string()),
             git_branch: Some(branch.to_string()),
+            query_source: Some(
+                match agent {
+                    Some(_) => "agent:custom",
+                    None if self.n.is_multiple_of(41) => "compact",
+                    None => "repl_main_thread",
+                }
+                .to_string(),
+            ),
             cc_version: Some(self.cc_version(ts).to_string()),
             entrypoint: Some("cli".into()),
             tools,
@@ -863,7 +869,7 @@ impl Gen<'_> {
         }
         let audited: i64 = tx.query_row("SELECT count(*) FROM audit_log", [], |r| r.get(0))?;
         if audited == 0 {
-            let first = self.ctx.day_start(now) - (self.days - 1) * DAY_MS + 9 * HOUR_MS + 12 * MINUTE_MS;
+            let first = self.ctx.day_shift(now, -(self.days - 1)) + 9 * HOUR_MS + 12 * MINUTE_MS;
             let entries = [
                 (first, "hooks.install", "statusline", serde_json::json!({"statusline": true, "session_hooks": true, "service": true})),
                 (first + 3 * MINUTE_MS, "settings.update", "plan", serde_json::json!({"plan": "max20x"})),
@@ -1021,7 +1027,7 @@ mod tests {
     const NOW: i64 = 1_795_648_000_000;
 
     fn ctx() -> Ctx {
-        Ctx { now: NOW, tz_offset_min: 60, week_start: 0 }
+        Ctx { now: NOW, tz_offset_min: 60, week_start: 0, zone: None }
     }
 
     fn totals(store: &Store) -> (i64, i64, i64, i64, i64) {
@@ -1170,7 +1176,7 @@ mod tests {
         for seed in 1..4u64 {
             for shift in [0, 13 * HOUR_MS, 82 * HOUR_MS, 5 * DAY_MS + 2 * HOUR_MS] {
                 let now = NOW + shift;
-                let c = Ctx { now, tz_offset_min: 60, week_start: 0 };
+                let c = Ctx { now, tz_offset_min: 60, week_start: 0, zone: None };
                 let t = TestStore::new();
                 populate_in(&t.store, &c, 21, seed).unwrap();
                 let s = &t.store;

@@ -58,7 +58,7 @@
       <Checks checks={d.checks} refreshing={r} />
       <Connection {d} refreshing={r} />
       <DataCard {d} refreshing={r} />
-      <Ingest ingest={d.ingest} {lastRequestAt} refreshing={r} />
+      <Ingest ingest={d.ingest} {lastRequestAt} refreshing={r} demo={d.demo} />
       <Quarantine rows={d.quarantine} refreshing={r} />
       <Backups dataDir={d.data_dir} />
       <Purge />

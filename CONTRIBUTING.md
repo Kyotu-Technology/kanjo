@@ -43,7 +43,7 @@ Filesystem locations come from `kanjo_core::paths::Paths`. Tests and demos use t
 
 The request, session and hourly usage tables are written only through `kanjo_core::store::write`. Other tables are written by the crate that owns the feature. The schema changes only by adding a migration to `MIGRATIONS` in `crates/kanjo-core/src/store/mod.rs`; existing migrations are never edited.
 
-JSON shapes live in `kanjo_core::api` and nowhere else. When you change one, regenerate the TypeScript bindings with `cargo test -p kanjo-core export_bindings` and update the UI in the same pull request.
+JSON shapes live in `kanjo_core::api` and nowhere else. When you change one, regenerate the TypeScript bindings and `web/src/lib/api/contract.ts` with `scripts/gen-bindings.sh` and update the UI in the same pull request.
 
 Timestamps are epoch milliseconds in UTC. Code that needs the current time or the local time zone takes a `&Ctx` instead of reading the clock, so tests stay deterministic.
 

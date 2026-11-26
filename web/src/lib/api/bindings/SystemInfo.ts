@@ -8,4 +8,12 @@ import type { QuarantineRow } from "./QuarantineRow";
 import type { RetentionSettings } from "./RetentionSettings";
 import type { ServerInfo } from "./ServerInfo";
 
-export type SystemInfo = { version: string, data_dir: string, claude_dir: string, claude_code_version: string | null, database: DatabaseInfo, ingest: IngestStatus, hooks: HookStatus, pricing: PricingInfo, server: ServerInfo, quarantine: Array<QuarantineRow>, retention: RetentionSettings, checks: Array<DoctorCheck>, };
+export type SystemInfo = { version: string, 
+/**
+ * True for `kanjo demo`: every figure is invented sample data.
+ */
+demo: boolean, 
+/**
+ * Whether the terminal bell can ring: the server has a terminal of its own.
+ */
+bell_available: boolean, data_dir: string, claude_dir: string, claude_code_version: string | null, database: DatabaseInfo, ingest: IngestStatus, hooks: HookStatus, pricing: PricingInfo, server: ServerInfo, quarantine: Array<QuarantineRow>, retention: RetentionSettings, checks: Array<DoctorCheck>, };

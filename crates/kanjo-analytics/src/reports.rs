@@ -1,12 +1,11 @@
 use crate::common::{
-    agent_key, bucket_label, bucket_start, bucket_starts, dow_hour, range, share, Env, Filter, Keys, ModelAcc, Range, Row, Src,
-    REPORT_DAYS, UNASSIGNED, USAGE_REQUEST_COLS,
+    agent_key, bucket_label, bucket_start, bucket_starts, range, share, Env, Filter, Keys, ModelAcc, Range, Row, Src, REPORT_DAYS,
+    UNASSIGNED, USAGE_REQUEST_COLS,
 };
 use kanjo_core::api::{
     delta_pct, Breakdown, BreakdownRow, Comparison, ComparisonSide, Confidence, DayCell, Dimension, Driver, Granularity, HeatCell, Heatmap,
     ModelSlice, PeriodSummary, Query, Usage, UsageBucket, UsageReport,
 };
-use kanjo_core::time::DAY_MS;
 use kanjo_core::{Ctx, Error, Result, Store};
 use rusqlite::types::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -63,8 +62,9 @@ pub(crate) fn model_slices(models: ModelAcc) -> Vec<ModelSlice> {
 }
 
 /// Usage split by `q.by` (default project) over the range (default 30 days), with filters.
-/// Project, model, agent and client come from `usage_hourly`; branch, session, tool,
-/// skill and MCP from the request rows. Tool, skill and MCP rows attribute to each name
+/// Project, model, agent and client come from `usage_hourly`; branch, session, query
+/// source, tool, skill and MCP from the request rows, so those cover only the stretch
+/// whose request rows retention has kept. Tool, skill and MCP rows attribute to each name
 /// the usage of the distinct requests that invoked it, so their shares need not sum to 1.
 pub fn breakdown(store: &Store, ctx: &Ctx, q: &Query) -> Result<Breakdown> {
     let env = Env::load(store)?;
@@ -82,7 +82,7 @@ pub(crate) fn breakdown_in(src: &Src, ctx: &Ctx, env: &Env, q: &Query) -> Result
             let total: Usage = fetched.iter().map(|x| x.usage).sum();
             (group_rows(&fetched, by, env), total, Confidence::LowerBound)
         }
-        Dimension::Branch | Dimension::Session => {
+        Dimension::Branch | Dimension::Session | Dimension::QuerySource => {
             let rows = request_groups(src, r, &f, by, env)?;
             let total = rows.iter().map(|x| x.usage).sum();
             (rows, total, Confidence::LowerBound)
@@ -149,7 +149,11 @@ fn request_total(src: &Src, r: Range, f: &Filter) -> Result<Usage> {
 }
 
 fn request_groups(src: &Src, r: Range, f: &Filter, by: Dimension, env: &Env) -> Result<Vec<BreakdownRow>> {
-    let key = if by == Dimension::Branch { "COALESCE(r.git_branch, '')" } else { "r.session_id" };
+    let key = match by {
+        Dimension::Branch => "COALESCE(r.git_branch, '')",
+        Dimension::QuerySource => "COALESCE(r.query_source, '')",
+        _ => "r.session_id",
+    };
     let mut params = vec![Value::Integer(r.from), Value::Integer(r.to)];
     let filter = f.sql("r", false, &mut params);
     let sql =
@@ -176,6 +180,8 @@ fn request_groups(src: &Src, r: Range, f: &Filter, by: Dimension, env: &Env) -> 
                     (p.clone(), p)
                 }
                 Dimension::Branch => (k.clone(), k),
+                Dimension::QuerySource if k.is_empty() => (String::new(), "(none)".to_string()),
+                Dimension::QuerySource => (k.clone(), k),
                 _ => {
                     let short: String = k.chars().take(8).collect();
                     let title = titles.get(&k).cloned().flatten();
@@ -232,7 +238,7 @@ pub fn heatmap(store: &Store, ctx: &Ctx, q: &Query) -> Result<Heatmap> {
     let mut days: Vec<DayCell> =
         starts.iter().map(|s| DayCell { date: ctx.date_label(*s), cost_usd: 0.0, tokens: 0, requests: 0 }).collect();
     for row in &rows {
-        let (dow, hour) = dow_hour(ctx, row.hour.max(r.from));
+        let (dow, hour) = ctx.weekday_hour(row.hour.max(r.from));
         let cell = &mut cells[dow as usize * 24 + hour as usize];
         cell.cost_usd += row.usage.cost_usd;
         cell.tokens += row.usage.tokens.total();
@@ -261,10 +267,15 @@ pub(crate) fn period_ranges(ctx: &Ctx) -> [(Range, Range); 3] {
     let month = ctx.month_start(now);
     let prev_month = ctx.month_shift(now, -1);
     [
-        (Range { from: day, to: now }, Range { from: day - DAY_MS, to: now - DAY_MS }),
-        (Range { from: week, to: now }, Range { from: week - 7 * DAY_MS, to: now - 7 * DAY_MS }),
+        (Range { from: day, to: now }, same_stretch(ctx.day_shift(day, -1), day, now)),
+        (Range { from: week, to: now }, same_stretch(ctx.day_shift(week, -7), week, now)),
         (Range { from: month, to: now }, Range { from: prev_month, to: (prev_month + (now - month)).min(month) }),
     ]
+}
+
+/// The previous period starting at `prev` up to the span elapsed since `start`, never past `start`.
+fn same_stretch(prev: i64, start: i64, now: i64) -> Range {
+    Range { from: prev, to: (prev + (now - start)).min(start) }
 }
 
 /// Period-over-period comparison. `q.period` is `week` (default) or `month`;
@@ -285,10 +296,10 @@ fn compare_in(src: &Src, ctx: &Ctx, env: &Env, q: &Query) -> Result<Comparison> 
         "week" => {
             let ws = ctx.week_start_of(now);
             if n == 0 {
-                (Granularity::Week, Range { from: ws, to: now }, Range { from: ws - 7 * DAY_MS, to: now - 7 * DAY_MS })
+                (Granularity::Week, Range { from: ws, to: now }, same_stretch(ctx.day_shift(ws, -7), ws, now))
             } else {
-                let start = ws - n * 7 * DAY_MS;
-                (Granularity::Week, Range { from: start, to: start + 7 * DAY_MS }, Range { from: start - 7 * DAY_MS, to: start })
+                let start = ctx.day_shift(ws, -7 * n);
+                (Granularity::Week, Range { from: start, to: ctx.day_shift(start, 7) }, Range { from: ctx.day_shift(start, -7), to: start })
             }
         }
         "month" => {

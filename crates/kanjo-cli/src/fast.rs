@@ -34,7 +34,16 @@ pub fn statusline(home: Option<PathBuf>, claude_dir: Option<PathBuf>, no_color: 
     let input = read_stdin();
     let now = kanjo_core::time::now_ms();
     let paths = Paths::resolve(home, claude_dir).ok();
-    let config = paths.as_ref().and_then(|p| Config::load(p).ok()).unwrap_or_default();
+    let config = match paths.as_ref().map(Config::load) {
+        Some(Ok(c)) => c,
+        Some(Err(e)) => {
+            // Claude Code shows stderr of a statusline command only in its debug log, so the line costs nothing there.
+            let first = e.to_string().lines().next().unwrap_or_default().to_string();
+            let _ = writeln!(std::io::stderr(), "kanjo statusline: config.toml cannot be read, using the defaults ({first})");
+            Config::default()
+        }
+        None => Config::default(),
+    };
     let record = StatuslineInput::parse(&input).ok().and_then(|i| i.to_record(now)).map(SpoolRecord::Statusline);
     if let (Some(paths), Some(SpoolRecord::Statusline(r))) = (&paths, &record) {
         let mut spooled = r.clone();

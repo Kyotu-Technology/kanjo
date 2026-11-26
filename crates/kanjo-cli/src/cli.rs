@@ -190,7 +190,7 @@ pub struct Filters {
 pub struct ReportArgs {
     #[command(flatten)]
     pub filters: Filters,
-    /// One line per model under each row
+    /// One line per model under each row (blocks also list their top projects)
     #[arg(long)]
     pub breakdown: bool,
     /// Print CSV instead of a table
@@ -240,6 +240,8 @@ pub enum ExportBy {
     Branch,
     Client,
     Session,
+    /// The part of Claude Code that sent the request (main conversation, compaction, ...)
+    QuerySource,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
