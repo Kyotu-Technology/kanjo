@@ -105,11 +105,11 @@ run() {
 		set -- "$INSTALLER" --dir "$dir" "$@"
 	fi
 	set +e
-	out=$(cat "$feed" | env -i HOME="$WORK/home" TMPDIR="$case_dir" PATH="${EXTRA_PATH:+$EXTRA_PATH:}$case_dir/path:$WORK/sys" \
+	out=$(env -i HOME="$WORK/home" TMPDIR="$case_dir" PATH="${EXTRA_PATH:+$EXTRA_PATH:}$case_dir/path:$WORK/sys" \
 		STUB_LOG="$case_dir/log" STUB_REL="$WORK/rel" STUB_BASE="$URL/releases/download/v$VERSION" \
 		STUB_LATEST="$URL/releases/tag/v$VERSION" STUB_COSIGN_EXIT="${COSIGN_EXIT:-0}" \
 		STUB_COSIGN_VERSION="${COSIGN_VERSION:-v3.1.5}" STUB_MINISIGN_EXIT="${MINISIGN_EXIT:-0}" \
-		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$@" 2>&1)
+		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$@" <"$feed" 2>&1)
 	code=$?
 	set -e
 	# The per-case settings are given as assignments in front of the call. bash 3.2
@@ -296,7 +296,7 @@ bytes=$(wc -c <"$INSTALLER")
 last=$(tail -n 1 "$INSTALLER" | wc -c)
 i=0
 while [ "$i" -lt "$lines" ]; do
-	head -n "$i" "$INSTALLER" >"$WORK/truncated.sh"
+	awk -v n="$i" 'NR <= n' "$INSTALLER" >"$WORK/truncated.sh"
 	PIPE="$WORK/truncated.sh" run "piped, cut off after line $i" "curl cosign"
 	expect_not_installed
 	expect_no_log curl

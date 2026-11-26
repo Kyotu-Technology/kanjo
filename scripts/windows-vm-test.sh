@@ -16,7 +16,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-winvm.XXXXXX")
 name="kanjo-winvm-$$"
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 cleanup() {
 	docker rm -f "$name" >/dev/null 2>&1 || true
 	docker run --rm -v "$work":/w alpine:3 rm -rf /w/storage /w/shared >/dev/null 2>&1 || true
