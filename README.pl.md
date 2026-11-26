@@ -265,10 +265,10 @@ Kanjo ma wersję 0.1.0 i nie ma jeszcze żadnego otagowanego wydania. Oto co zos
 
 | Platforma | Stan | Jak zweryfikowano |
 | --- | --- | --- |
-| Linux x86_64 | Zbudowane i przetestowane | Testy; ręczne uruchomienia w katalogach tymczasowych; w trakcie prac import około 7 GB rzeczywistych transkryptów w czasie od 7 do 10 sekund; faza `strace` testu ruchu wychodzącego; `scripts/test-install.sh` |
+| Linux x86_64 | Zbudowane i przetestowane | Testy; ręczne uruchomienia w katalogach tymczasowych; w trakcie prac import około 7 GB rzeczywistych transkryptów w czasie poniżej 10 sekund, z sumami tokenów porównanymi z osobnym wyliczeniem w `jq` i cennikiem porównanym z kosztami, które Claude Code zapisuje samo; statyczny build musl zbudowany i uruchomiony w kontenerze Alpine; faza `strace` testu ruchu wychodzącego; `scripts/test-install.sh` |
 | Linux aarch64 | Zdefiniowane w workflow wydań | Jeszcze nie budowane |
 | macOS (Intel i Apple silicon) | Zdefiniowane w CI i workflow wydań | Nigdy nie uruchomione na sprzęcie |
-| Windows x86_64 | Zdefiniowane w CI i workflow wydań | Nigdy nie zbudowane ani uruchomione na Windows; `install.ps1` testowany tylko w PowerShell 7 na Linuksie, w trybie offline |
+| Windows x86_64 | Zdefiniowane w CI i workflow wydań | Sprawdzone kompilatorem przez kompilację skrośną workspace'u dla `x86_64-pc-windows-gnu`; nigdy nie zbudowane w MSVC ani uruchomione na Windows; `install.ps1` testowany tylko w PowerShell 7 na Linuksie, w trybie offline |
 
 Na żadnej platformie nie uruchomiono naprawdę usługi w tle (`kanjo up` bez `--no-service`, `kanjo service install`) ani `kanjo uninstall`; ten kod sprawdzają testy, które nigdy nie wywołują `systemctl`, `launchctl` ani `reg`. Obsługę systemowych pęków kluczy testowano tylko przez zastępczą implementację, a ręczne uruchomienia trzymały klucz w pliku. Workflow CI jeszcze nie był uruchamiany, bo repozytorium nie zostało opublikowane. Workflow wydań (podpisy, SBOM, atestacje) również nie był jeszcze uruchamiany, faza testu ruchu wychodzącego w przestrzeni nazw sieci jeszcze się nie odbyła (wymaga uprawnień, które ma CI), a adres repozytorium `https://github.com/kyotu/kanjo` użyty w tym README i w skryptach instalacyjnych to miejsce, w którym projekt ma się znaleźć.
 
