@@ -8,10 +8,18 @@
 # name this repository's release workflow and tag), and against its minisign
 # signature when minisign is installed and a public key is set below. A failed
 # check stops the installer; a skipped one is reported with the reason.
-# Download it from the latest release of the repository in REPO_URL below, read
-# it, and then run:
 #
-#   sh install.sh
+# Run it straight from the latest release of the repository in REPO_URL below:
+#
+#   curl -fsSL https://github.com/Kyotu-Technology/kanjo/releases/latest/download/install.sh | sh
+#
+# or download it, read it, and run "sh install.sh". Options work in both forms;
+# when the script comes through a pipe, pass them after "sh -s --":
+#
+#   curl -fsSL .../install.sh | sh -s -- --version 0.1.0
+#
+# Everything runs inside main(), which is called on the last line, so a
+# download that is cut off part way runs nothing.
 #
 # Options:
 #   --version <x.y.z>   install this version instead of the latest release
@@ -43,6 +51,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 usage() {
 	cat <<'EOF'
 Usage: install.sh [--version <x.y.z>] [--dir <path>] [--archive <file> [--sums <file> | --no-verify]] [--skip-signature]
+       curl -fsSL <release>/install.sh | sh -s -- [options]
 
   --version <x.y.z>   install this version instead of the latest release
   --dir <path>        install directory (default: ~/.local/bin)
@@ -55,50 +64,6 @@ Usage: install.sh [--version <x.y.z>] [--dir <path>] [--archive <file> [--sums <
 EOF
 }
 
-version=""
-dir="${HOME:?HOME is not set}/.local/bin"
-archive=""
-sums=""
-no_verify=0
-skip_signature=0
-while [ $# -gt 0 ]; do
-	case "$1" in
-	--version)
-		[ $# -ge 2 ] || die "--version needs a value"
-		version=${2#v}
-		shift 2
-		;;
-	--dir)
-		[ $# -ge 2 ] || die "--dir needs a value"
-		dir=$2
-		shift 2
-		;;
-	--archive)
-		[ $# -ge 2 ] || die "--archive needs a value"
-		archive=$2
-		shift 2
-		;;
-	--sums)
-		[ $# -ge 2 ] || die "--sums needs a value"
-		sums=$2
-		shift 2
-		;;
-	--no-verify)
-		no_verify=1
-		shift
-		;;
-	--skip-signature)
-		skip_signature=1
-		shift
-		;;
-	-h | --help)
-		usage
-		exit 0
-		;;
-	*) die "unknown option: $1 (see --help)" ;;
-	esac
-done
-
 check_version() {
 	case "$1" in
 	"" | [0-9]*.[0-9]*.[0-9]*) ;;
@@ -108,8 +73,6 @@ check_version() {
 	*[!0-9A-Za-z.+-]*) die "not a version number: $1" ;;
 	esac
 }
-check_version "$version"
-
 detect_target() {
 	os=$(uname -s)
 	arch=$(uname -m)
@@ -187,11 +150,6 @@ verify_sha256() {
 	sha_status="verified"
 }
 
-sha_status="skipped"
-cosign_status="skipped"
-minisign_status="skipped"
-signed=0
-
 # $1 = SHA256SUMS, $2 = SHA256SUMS.sigstore.json (may be missing)
 verify_cosign() {
 	if [ "$skip_signature" = 1 ]; then
@@ -251,84 +209,141 @@ report_verification() {
 	fi
 }
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-install.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 130' INT TERM
-
-if [ -n "$archive" ]; then
-	[ -f "$archive" ] || die "archive not found: $archive"
-	name=${archive##*/}
-	case "$name" in
-	kanjo-*.tar.gz) ;;
-	*) die "expected an archive named kanjo-<version>-<target>.tar.gz, got $name" ;;
-	esac
-	stem=${name#kanjo-}
-	stem=${stem%.tar.gz}
+main() {
 	version=""
-	for t in $TARGETS; do
-		case "$stem" in *"-$t") version=${stem%-"$t"} ;; esac
+	dir="${HOME:?HOME is not set}/.local/bin"
+	archive=""
+	sums=""
+	no_verify=0
+	skip_signature=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--version)
+			[ $# -ge 2 ] || die "--version needs a value"
+			version=${2#v}
+			shift 2
+			;;
+		--dir)
+			[ $# -ge 2 ] || die "--dir needs a value"
+			dir=$2
+			shift 2
+			;;
+		--archive)
+			[ $# -ge 2 ] || die "--archive needs a value"
+			archive=$2
+			shift 2
+			;;
+		--sums)
+			[ $# -ge 2 ] || die "--sums needs a value"
+			sums=$2
+			shift 2
+			;;
+		--no-verify)
+			no_verify=1
+			shift
+			;;
+		--skip-signature)
+			skip_signature=1
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*) die "unknown option: $1 (see --help)" ;;
+		esac
 	done
+
 	check_version "$version"
-	cp "$archive" "$tmp/$name"
-	if [ -z "$sums" ] && [ -f "$(dirname "$archive")/SHA256SUMS" ]; then
-		sums="$(dirname "$archive")/SHA256SUMS"
-	fi
-	if [ -n "$sums" ]; then
-		[ -f "$sums" ] || die "SHA256SUMS not found: $sums"
-		cp "$sums" "$tmp/SHA256SUMS"
-		if [ -f "$sums.minisig" ]; then cp "$sums.minisig" "$tmp/SHA256SUMS.minisig"; fi
-		if [ -f "$sums.sigstore.json" ]; then cp "$sums.sigstore.json" "$tmp/SHA256SUMS.sigstore.json"; fi
+
+	sha_status="skipped"
+	cosign_status="skipped"
+	minisign_status="skipped"
+	signed=0
+
+	tmp=$(mktemp -d "${TMPDIR:-/tmp}/kanjo-install.XXXXXX")
+	trap 'rm -rf "$tmp"' EXIT
+	trap 'exit 130' INT TERM
+
+	if [ -n "$archive" ]; then
+		[ -f "$archive" ] || die "archive not found: $archive"
+		name=${archive##*/}
+		case "$name" in
+		kanjo-*.tar.gz) ;;
+		*) die "expected an archive named kanjo-<version>-<target>.tar.gz, got $name" ;;
+		esac
+		stem=${name#kanjo-}
+		stem=${stem%.tar.gz}
+		version=""
+		for t in $TARGETS; do
+			case "$stem" in *"-$t") version=${stem%-"$t"} ;; esac
+		done
+		check_version "$version"
+		cp "$archive" "$tmp/$name"
+		if [ -z "$sums" ] && [ -f "$(dirname "$archive")/SHA256SUMS" ]; then
+			sums="$(dirname "$archive")/SHA256SUMS"
+		fi
+		if [ -n "$sums" ]; then
+			[ -f "$sums" ] || die "SHA256SUMS not found: $sums"
+			cp "$sums" "$tmp/SHA256SUMS"
+			if [ -f "$sums.minisig" ]; then cp "$sums.minisig" "$tmp/SHA256SUMS.minisig"; fi
+			if [ -f "$sums.sigstore.json" ]; then cp "$sums.sigstore.json" "$tmp/SHA256SUMS.sigstore.json"; fi
+			verify_cosign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sigstore.json"
+			verify_minisign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.minisig"
+			verify_sha256 "$tmp/$name" "$tmp/SHA256SUMS"
+			report_verification
+		elif [ "$no_verify" = 1 ]; then
+			say "WARNING: --no-verify given; installing an archive whose checksum and signature were not verified"
+		else
+			die "no SHA256SUMS next to $archive; pass --sums <file>, or --no-verify to install it unverified"
+		fi
+	else
+		detect_target
+		if [ -z "$version" ]; then version=$(latest_version); fi
+		name="kanjo-$version-$target.tar.gz"
+		base="$REPO_URL/releases/download/v$version"
+		say "downloading $name"
+		fetch "$base/$name" "$tmp/$name"
+		fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
+		if [ "$skip_signature" = 0 ] && have cosign; then
+			fetch "$base/SHA256SUMS.sigstore.json" "$tmp/SHA256SUMS.sigstore.json" ||
+				die "cosign is installed but SHA256SUMS.sigstore.json could not be downloaded from the release, so the signature cannot be checked"
+		fi
+		if [ "$skip_signature" = 0 ] && have minisign && [ -n "$MINISIGN_PUBKEY" ]; then
+			fetch "$base/SHA256SUMS.minisig" "$tmp/SHA256SUMS.minisig" || die "could not download SHA256SUMS.minisig"
+		fi
 		verify_cosign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sigstore.json"
 		verify_minisign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.minisig"
 		verify_sha256 "$tmp/$name" "$tmp/SHA256SUMS"
 		report_verification
-	elif [ "$no_verify" = 1 ]; then
-		say "WARNING: --no-verify given; installing an archive whose checksum and signature were not verified"
-	else
-		die "no SHA256SUMS next to $archive; pass --sums <file>, or --no-verify to install it unverified"
 	fi
-else
-	detect_target
-	if [ -z "$version" ]; then version=$(latest_version); fi
-	name="kanjo-$version-$target.tar.gz"
-	base="$REPO_URL/releases/download/v$version"
-	say "downloading $name"
-	fetch "$base/$name" "$tmp/$name"
-	fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
-	if [ "$skip_signature" = 0 ] && have cosign; then
-		fetch "$base/SHA256SUMS.sigstore.json" "$tmp/SHA256SUMS.sigstore.json" ||
-			die "cosign is installed but SHA256SUMS.sigstore.json could not be downloaded from the release, so the signature cannot be checked"
-	fi
-	if [ "$skip_signature" = 0 ] && have minisign && [ -n "$MINISIGN_PUBKEY" ]; then
-		fetch "$base/SHA256SUMS.minisig" "$tmp/SHA256SUMS.minisig" || die "could not download SHA256SUMS.minisig"
-	fi
-	verify_cosign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sigstore.json"
-	verify_minisign "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.minisig"
-	verify_sha256 "$tmp/$name" "$tmp/SHA256SUMS"
-	report_verification
-fi
 
-mkdir -p "$tmp/x"
-tar -xzf "$tmp/$name" -C "$tmp/x"
-bin=$(find "$tmp/x" -type f -name kanjo | head -n 1)
-[ -n "$bin" ] || die "the archive does not contain a kanjo binary"
+	mkdir -p "$tmp/x"
+	tar -xzf "$tmp/$name" -C "$tmp/x"
+	bin=$(find "$tmp/x" -type f -name kanjo | head -n 1)
+	[ -n "$bin" ] || die "the archive does not contain a kanjo binary"
 
-mkdir -p "$dir"
-cp "$bin" "$dir/kanjo.tmp.$$"
-chmod 0755 "$dir/kanjo.tmp.$$"
-mv -f "$dir/kanjo.tmp.$$" "$dir/kanjo"
-say "installed $dir/kanjo"
+	mkdir -p "$dir"
+	cp "$bin" "$dir/kanjo.tmp.$$"
+	chmod 0755 "$dir/kanjo.tmp.$$"
+	mv -f "$dir/kanjo.tmp.$$" "$dir/kanjo"
+	say "installed $dir/kanjo"
 
-case ":${PATH:-}:" in
-*":$dir:"*) say "next step: run \"kanjo up\"" ;;
-*)
-	say "$dir is not on your PATH, so your shell will not find kanjo by name yet"
-	say "next step: run \"$dir/kanjo\" up"
-	say "to put kanjo on your PATH, add $dir to the start-up file of your shell:"
-	say "  bash:       echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bashrc   (~/.bash_profile on macOS)"
-	say "  zsh:        echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zshrc"
-	say "  fish:       fish_add_path '$dir'"
-	say "  PowerShell: Add-Content \$PROFILE '\$env:PATH = \"$dir:\" + \$env:PATH'"
-	say "then open a new terminal, and \"kanjo up\" works from anywhere"
-	;;
-esac
+	case ":${PATH:-}:" in
+	*":$dir:"*) say "next step: run \"kanjo up\"" ;;
+	*)
+		say "$dir is not on your PATH, so your shell will not find kanjo by name yet"
+		say "next step: run \"$dir/kanjo\" up"
+		say "to put kanjo on your PATH, add $dir to the start-up file of your shell:"
+		say "  bash:       echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bashrc   (~/.bash_profile on macOS)"
+		say "  zsh:        echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zshrc"
+		say "  fish:       fish_add_path '$dir'"
+		say "  PowerShell: Add-Content \$PROFILE '\$env:PATH = \"$dir:\" + \$env:PATH'"
+		say "then open a new terminal, and \"kanjo up\" works from anywhere"
+		;;
+	esac
+}
+
+# Inside braces, a download cut off within this line is a syntax error rather
+# than a call to main without the options.
+{ main "$@"; }

@@ -1,7 +1,10 @@
 # Tests install/install.ps1 in offline mode with stub cosign and minisign
 # commands, in a temporary directory, with -NoPathUpdate so the user PATH is
-# never changed. Runs the installer in the same PowerShell edition as this
-# script, so run it under both powershell.exe (5.1) and pwsh.
+# never changed. Also runs it the way "irm ... | iex" and the script block form
+# do, with stub download commands, in a child session that checks that nothing
+# of the installer is left behind in it and that it keeps running after an
+# error. Runs the installer in the same PowerShell edition as this script, so
+# run it under both powershell.exe (5.1) and pwsh.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install.ps1
 Set-StrictMode -Version Latest
@@ -14,7 +17,8 @@ $onWindows = [IO.Path]::DirectorySeparatorChar -eq '\'
 $sep = [IO.Path]::PathSeparator
 $version = '9.9.9'
 $name = "kanjo-$version-x86_64-pc-windows-msvc"
-$identity = "https://github.com/Kyotu-Technology/kanjo/.github/workflows/release.yml@refs/tags/v$version"
+$url = 'https://github.com/Kyotu-Technology/kanjo'
+$identity = "$url/.github/workflows/release.yml@refs/tags/v$version"
 $issuer = 'https://token.actions.githubusercontent.com'
 if (-not $env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE = 'AMD64' }
 
@@ -65,13 +69,72 @@ if ($onWindows) {
     & chmod 0755 (Join-Path $stubs 'cosign') (Join-Path $stubs 'minisign')
 }
 
+# Runs the installer text inside this session, as "irm | iex" (-Mode iex) or as
+# "& ([scriptblock]::Create((irm ...))) <parameters>" (-Mode scriptblock), with
+# Invoke-WebRequest and Invoke-RestMethod replaced by functions that serve the
+# files of the test release, then reports what the installer left behind.
+$driver = Join-Path $work 'piped.ps1'
+Set-Content -LiteralPath $driver -Encoding ascii -Value @'
+param([string]$Mode, [string]$Installer, [string]$Dir, [switch]$NoPathUpdate, [string]$Version = '')
+$text = Get-Content -Raw -LiteralPath $Installer
+function Invoke-WebRequest {
+    param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+    Add-Content -LiteralPath (Join-Path $env:STUB_LOG 'web') -Value $Uri
+    $src = Join-Path $env:STUB_REL ($Uri -replace '^.*/', '')
+    if (-not $Uri.StartsWith($env:STUB_BASE + '/') -or -not (Test-Path -LiteralPath $src)) { throw "stub: 404 for $Uri" }
+    Copy-Item -LiteralPath $src -Destination $OutFile
+}
+function Invoke-RestMethod {
+    param([string]$Uri, [switch]$UseBasicParsing, [hashtable]$Headers)
+    Add-Content -LiteralPath (Join-Path $env:STUB_LOG 'web') -Value $Uri
+    [pscustomobject]@{ tag_name = $env:STUB_LATEST_TAG }
+}
+if ($Mode -eq 'iex') { $env:LOCALAPPDATA = $null }
+$probe = @('Version', 'Dir', 'Archive', 'Sums', 'tmp', 'zip', 'name', 'Status', 'RepoUrl', 'Target')
+foreach ($p in $probe) { if (-not (Get-Variable -Name $p -ErrorAction SilentlyContinue)) { Set-Variable -Name $p -Value 'caller' } }
+$expected = @{}
+foreach ($p in $probe) { $expected[$p] = [string](Get-Variable -Name $p).Value }
+$preferences = "$ErrorActionPreference|$ProgressPreference|$VerbosePreference"
+$protocol = [Net.ServicePointManager]::SecurityProtocol
+$automatic = @('?', '^', '$', '_', 'PSItem', 'Error', 'LASTEXITCODE', 'Matches', 'StackTrace', 'args', 'input', 'foreach', 'switch', 'this')
+$caught = $null
+$leaks = @()
+$v = $null
+$f = $null
+$l = $null
+$functionsBefore = @(Get-ChildItem function: | ForEach-Object { $_.Name })
+$variablesBefore = @(Get-Variable | ForEach-Object { $_.Name }) + 'variablesBefore'
+try {
+    if ($Mode -eq 'iex') {
+        $text | Invoke-Expression
+    } else {
+        if ($NoPathUpdate) {
+            & ([scriptblock]::Create($text)) -Dir $Dir -Version $Version -NoPathUpdate
+        } else {
+            & ([scriptblock]::Create($text)) -Dir $Dir -Version $Version
+        }
+    }
+} catch {
+    $caught = $_
+}
+if ($caught) { Write-Host "piped: error: $($caught.Exception.Message)" }
+foreach ($v in @(Get-Variable)) { if ($variablesBefore -notcontains $v.Name -and $automatic -notcontains $v.Name) { $leaks += "variable $($v.Name)" } }
+foreach ($f in @(Get-ChildItem function:)) { if ($functionsBefore -notcontains $f.Name -and -not $f.ModuleName) { $leaks += "function $($f.Name)" } }
+foreach ($p in $probe) { if ([string](Get-Variable -Name $p).Value -ne $expected[$p]) { $leaks += "the value of $p" } }
+if ("$ErrorActionPreference|$ProgressPreference|$VerbosePreference" -ne $preferences) { $leaks += 'preference settings' }
+if ([Net.ServicePointManager]::SecurityProtocol -ne $protocol) { $leaks += 'the SecurityProtocol setting' }
+try { $null = $undefinedProbe } catch { $leaks += 'strict mode' }
+foreach ($l in $leaks) { Write-Host "piped: leaked $l" }
+Write-Host 'piped: the calling session is still running'
+'@
+
 $script:failures = 0
 $script:n = 0
 $realPath = $env:PATH
 
 # Runs the installer. $Tools names the stub commands to put on PATH. Returns
 # the combined output, the exit code, the install directory and the log directory.
-function Invoke-Case([string]$Label, [string[]]$Tools, [hashtable]$Env, [string[]]$Arguments, [switch]$DirOnPath) {
+function Invoke-Case([string]$Label, [string[]]$Tools, [hashtable]$Env, [string[]]$Arguments, [switch]$DirOnPath, [string]$Script = $installer) {
     $script:n++
     $case = Join-Path $work "case$script:n"
     $dir = Join-Path $case 'bin'
@@ -82,13 +145,16 @@ function Invoke-Case([string]$Label, [string[]]$Tools, [hashtable]$Env, [string[
         Get-ChildItem -LiteralPath $stubs -Filter "$s*" | Copy-Item -Destination $path
     }
     if (-not $onWindows) { Get-ChildItem -LiteralPath $path | ForEach-Object { & chmod 0755 $_.FullName } }
-    $vars = @{ STUB_LOG = $log; STUB_COSIGN_EXIT = '0'; STUB_COSIGN_VERSION = 'v3.1.5'; STUB_MINISIGN_EXIT = '0'; KANJO_MINISIGN_PUBKEY = '' }
+    $vars = @{
+        STUB_LOG = $log; STUB_COSIGN_EXIT = '0'; STUB_COSIGN_VERSION = 'v3.1.5'; STUB_MINISIGN_EXIT = '0'; KANJO_MINISIGN_PUBKEY = ''
+        STUB_REL = $rel; STUB_BASE = "$url/releases/download/v$version"; STUB_LATEST_TAG = "v$version"
+    }
     if ($Env) { foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] } }
     foreach ($k in $vars.Keys) { [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
     $env:PATH = $path + $sep + $realPath
     if ($DirOnPath) { $env:PATH = $dir + $sep + $env:PATH }
     $ErrorActionPreference = 'Continue'
-    $out = & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -Dir $dir -NoPathUpdate @Arguments 2>&1 | ForEach-Object { "$_" }
+    $out = & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script -Dir $dir -NoPathUpdate @Arguments 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $env:PATH = $realPath
@@ -223,6 +289,38 @@ try {
     Expect-Exit $r 0
     Expect-Out $r 'next step: run "kanjo up"'
     Expect-NoOut $r 'is not on the PATH of this terminal'
+
+    $r = Invoke-Case 'unknown parameter' @() $null @('-Archive', $zip, '-NoSuchOption')
+    Expect-Exit $r 1
+    Expect-NotInstalled $r
+    Expect-Out $r 'NoSuchOption'
+
+    $r = Invoke-Case 'irm | iex, error before any download' @() $null @('-Mode', 'iex', '-Installer', $installer) -Script $driver
+    Expect-Exit $r 0
+    Expect-Out $r 'piped: error: kanjo-install: error: LOCALAPPDATA is not set'
+    Expect-Out $r 'piped: the calling session is still running'
+    Expect-NoOut $r 'piped: leaked'
+    Expect-NoLog $r 'web'
+
+    $r = Invoke-Case 'script block, latest release, cosign verifies' @('cosign') $null @('-Mode', 'scriptblock', '-Installer', $installer) -Script $driver
+    Expect-Exit $r 0
+    Expect-Installed $r
+    Expect-NoOut $r 'piped: error'
+    Expect-Out $r 'cosign signature: verified'
+    Expect-Out $r 'piped: the calling session is still running'
+    Expect-NoOut $r 'piped: leaked'
+    Expect-Log $r 'web' 'https://api.github.com/repos/Kyotu-Technology/kanjo/releases/latest'
+    Expect-Log $r 'web' "$url/releases/download/v$version/$name.zip"
+    Expect-Log $r 'web' "$url/releases/download/v$version/SHA256SUMS.sigstore.json"
+    Expect-Log $r 'cosign' "--certificate-identity $identity"
+
+    $r = Invoke-Case 'script block, -Version, cosign rejects' @('cosign') @{ STUB_COSIGN_EXIT = '1' } @('-Mode', 'scriptblock', '-Installer', $installer, '-Version', $version) -Script $driver
+    Expect-Exit $r 0
+    Expect-NotInstalled $r
+    Expect-Out $r 'piped: error: kanjo-install: error: cosign signature check failed'
+    Expect-Out $r 'piped: the calling session is still running'
+    Expect-NoOut $r 'piped: leaked'
+    if ((Get-Log $r 'web').Contains('releases/latest')) { Fail-Check $r 'asked for the latest release although -Version was given' }
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

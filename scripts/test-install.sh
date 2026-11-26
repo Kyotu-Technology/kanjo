@@ -1,7 +1,9 @@
 #!/bin/sh
 # Tests install/install.sh in a temporary directory, offline and online, with
 # stub curl, cosign and minisign on a PATH that contains nothing else from the
-# machine except basic tools. Never touches the real HOME.
+# machine except basic tools, both as a file and fed to sh through a pipe the
+# way "curl ... | sh" does, including downloads cut off part way. Never touches
+# the real HOME.
 #
 # Usage: scripts/test-install.sh
 set -eu
@@ -94,17 +96,25 @@ run() {
 	dir="$case_dir/bin"
 	mkdir -p "$case_dir/path" "$case_dir/log"
 	for s in $stubs; do ln -s "$WORK/stubs/$s" "$case_dir/path/$s"; done
+	# PIPE=<file> feeds that file to "sh -s --" through a pipe instead of running the installer file.
+	if [ -n "${PIPE:-}" ]; then
+		feed=$PIPE
+		set -- -s -- --dir "$dir" "$@"
+	else
+		feed=/dev/null
+		set -- "$INSTALLER" --dir "$dir" "$@"
+	fi
 	set +e
-	out=$(env -i HOME="$WORK/home" TMPDIR="$case_dir" PATH="${EXTRA_PATH:+$EXTRA_PATH:}$case_dir/path:$WORK/sys" \
+	out=$(cat "$feed" | env -i HOME="$WORK/home" TMPDIR="$case_dir" PATH="${EXTRA_PATH:+$EXTRA_PATH:}$case_dir/path:$WORK/sys" \
 		STUB_LOG="$case_dir/log" STUB_REL="$WORK/rel" STUB_BASE="$URL/releases/download/v$VERSION" \
 		STUB_LATEST="$URL/releases/tag/v$VERSION" STUB_COSIGN_EXIT="${COSIGN_EXIT:-0}" \
 		STUB_COSIGN_VERSION="${COSIGN_VERSION:-v3.1.5}" STUB_MINISIGN_EXIT="${MINISIGN_EXIT:-0}" \
-		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$INSTALLER" --dir "$dir" "$@" 2>&1)
+		KANJO_MINISIGN_PUBKEY="${PUBKEY:-}" sh "$@" 2>&1)
 	code=$?
 	set -e
 	# The per-case settings are given as assignments in front of the call. bash 3.2
 	# in POSIX mode (the /bin/sh of macOS) keeps them after the function returns.
-	unset COSIGN_EXIT COSIGN_VERSION MINISIGN_EXIT PUBKEY EXTRA_PATH
+	unset COSIGN_EXIT COSIGN_VERSION MINISIGN_EXIT PUBKEY EXTRA_PATH PIPE
 }
 fail() {
 	failures=$((failures + 1))
@@ -248,6 +258,71 @@ EXTRA_PATH="$WORK/case$((n + 1))/bin" run "install directory on PATH" "" --archi
 expect_exit 0
 expect_out 'next step: run "kanjo up"'
 expect_no_out "is not on your PATH"
+
+PIPE="$INSTALLER" run "piped, latest release, cosign verifies" "curl cosign"
+expect_exit 0
+expect_installed
+expect_out "cosign signature: verified"
+expect_log cosign "--certificate-identity $IDENTITY"
+expect_log curl "$URL/releases/latest"
+expect_log curl "$URL/releases/download/v$VERSION/$NAME.tar.gz"
+
+PIPE="$INSTALLER" run "piped, options after sh -s --" "curl cosign" --version "v$VERSION" --skip-signature
+expect_exit 0
+expect_installed
+expect_out "cosign signature: skipped (--skip-signature)"
+expect_no_log cosign
+if grep -q -F -- "$URL/releases/latest" "$case_dir/log/curl"; then fail "asked for the latest release although --version was given"; fi
+
+PIPE="$INSTALLER" run "piped, offline archive" "cosign" --archive "$ARCHIVE"
+expect_exit 0
+expect_installed
+expect_out "cosign signature: verified"
+
+COSIGN_EXIT=1 PIPE="$INSTALLER" run "piped, cosign rejects" "curl cosign"
+expect_exit 1
+expect_not_installed
+expect_out "cosign signature check failed"
+
+PIPE="$INSTALLER" run "piped, --help" "curl" --help
+expect_exit 0
+expect_out "sh -s -- [options]"
+expect_no_log curl
+
+# Every prefix of the script that ends on a line boundary, and every cut inside
+# the last line, must run nothing: no download and no installed binary.
+lines=$(wc -l <"$INSTALLER")
+bytes=$(wc -c <"$INSTALLER")
+last=$(tail -n 1 "$INSTALLER" | wc -c)
+i=0
+while [ "$i" -lt "$lines" ]; do
+	head -n "$i" "$INSTALLER" >"$WORK/truncated.sh"
+	PIPE="$WORK/truncated.sh" run "piped, cut off after line $i" "curl cosign"
+	expect_not_installed
+	expect_no_log curl
+	i=$((i + 1))
+done
+i=$((bytes - last))
+while [ "$i" -lt $((bytes - 1)) ]; do
+	head -c "$i" "$INSTALLER" >"$WORK/truncated.sh"
+	PIPE="$WORK/truncated.sh" run "piped, cut off after byte $i" "curl cosign"
+	expect_not_installed
+	expect_no_log curl
+	i=$((i + 1))
+done
+
+label="static checks"
+out=""
+# The release workflow runs the same script (job "package") before it signs anything.
+out=$(sh "$REPO/scripts/installer-repo-url.sh" "$INSTALLER" "$REPO/install/install.ps1" "$URL" 2>&1) ||
+	fail "the installers do not pin the repository that signs releases"
+out=""
+# Windows PowerShell reads a script without a byte order mark, and the text that
+# Invoke-RestMethod returns for "irm | iex", in a legacy code page.
+if LC_ALL=C grep -n '[^ -~	]' "$INSTALLER" "$REPO/install/install.ps1" >"$WORK/nonascii"; then
+	out=$(cat "$WORK/nonascii")
+	fail "the installers contain non-ASCII characters"
+fi
 
 if [ "$failures" -gt 0 ]; then
 	echo "test-install: $failures failed check(s) in $n case(s)"
