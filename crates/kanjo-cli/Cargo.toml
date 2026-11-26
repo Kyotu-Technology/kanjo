@@ -17,13 +17,13 @@ default = ["server"]
 server = ["dep:kanjo-server"]
 
 [dependencies]
-kanjo-core = { version = "0.2.0-rc.1", path = "../kanjo-core" }
-kanjo-ingest = { version = "0.2.0-rc.1", path = "../kanjo-ingest" }
-kanjo-analytics = { version = "0.2.0-rc.1", path = "../kanjo-analytics" }
-kanjo-alerts = { version = "0.2.0-rc.1", path = "../kanjo-alerts" }
-kanjo-ops = { version = "0.2.0-rc.1", path = "../kanjo-ops" }
-kanjo-setup = { version = "0.2.0-rc.1", path = "../kanjo-setup" }
-kanjo-server = { version = "0.2.0-rc.1", path = "../kanjo-server", optional = true }
+kanjo-core = { version = "0.2.0", path = "../kanjo-core" }
+kanjo-ingest = { version = "0.2.0", path = "../kanjo-ingest" }
+kanjo-analytics = { version = "0.2.0", path = "../kanjo-analytics" }
+kanjo-alerts = { version = "0.2.0", path = "../kanjo-alerts" }
+kanjo-ops = { version = "0.2.0", path = "../kanjo-ops" }
+kanjo-setup = { version = "0.2.0", path = "../kanjo-setup" }
+kanjo-server = { version = "0.2.0", path = "../kanjo-server", optional = true }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 open = "5"

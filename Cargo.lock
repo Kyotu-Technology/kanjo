@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-alerts"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "kanjo-core",
  "notify-rust",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-analytics"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "jiff",
  "kanjo-core",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-core"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "hmac 0.13.0",
  "jiff",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-ingest"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "kanjo-core",
  "kanjo-ops",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-ops"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "apple-native-keyring-store",
  "getrandom 0.4.3",
@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-server"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "kanjo-setup"
-version = "0.2.0-rc.1"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
  "jiff",

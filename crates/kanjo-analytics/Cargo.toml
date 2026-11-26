@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 jiff = { version = "1.0.3", default-features = false, features = ["std"] }
-kanjo-core = { version = "0.2.0-rc.1", path = "../kanjo-core" }
+kanjo-core = { version = "0.2.0", path = "../kanjo-core" }
 rusqlite = { version = "0.43.0", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
