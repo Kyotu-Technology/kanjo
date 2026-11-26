@@ -233,6 +233,7 @@ mod tests {
         move |name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v))
     }
 
+    #[cfg(unix)]
     #[test]
     fn xdg_layout_honours_absolute_variables_only() {
         let home = PathBuf::from("/home/u");

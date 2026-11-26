@@ -320,7 +320,9 @@ fn a_custom_data_directory_is_named_in_every_command_and_still_recognised() {
     for ev in HOOK_EVENTS {
         assert_eq!(kanjo_hook_count(&v, ev), 1, "{ev}");
     }
-    assert!(text(&e).contains(&expect("hook")));
+    let hook_command = expect("hook");
+    let start_hooks = v["hooks"]["SessionStart"].as_array().cloned().unwrap_or_default();
+    assert!(start_hooks.iter().any(|g| g["hooks"].as_array().is_some_and(|hs| hs.iter().any(|h| h["command"] == hook_command.as_str()))));
     let again = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Some(&home), Shell::Posix, 0).unwrap();
     assert!(!again.changed, "reinstalling with the same directory is a no-op");
     let moved = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), None, Shell::Posix, 0).unwrap();

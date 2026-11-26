@@ -29,7 +29,7 @@ scripts/egress-test.sh target/debug/kanjo
 sh scripts/test-install.sh
 ```
 
-`cargo deny` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and `scripts/cargo-audit.sh` needs [cargo-audit](https://github.com/rustsec/rustsec/tree/main/cargo-audit) and git; it audits against a fresh clone of the advisory database instead of `~/.cargo/advisory-db`. `scripts/test-install.sh` tests `install/install.sh` with stub tools in a temporary directory; on Windows, `scripts/test-install.ps1` does the same for `install.ps1`. The egress test needs Linux, `strace`, `unshare` and `ip`; it skips with a message when they are missing, and CI runs it in strict mode.
+`cargo deny` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and `scripts/cargo-audit.sh` needs [cargo-audit](https://github.com/rustsec/rustsec/tree/main/cargo-audit) and git; it audits against a fresh clone of the advisory database instead of `~/.cargo/advisory-db`. `scripts/test-install.sh` tests `install/install.sh` with stub tools in a temporary directory; on Windows, `scripts/test-install.ps1` does the same for `install.ps1`. The egress test needs Linux, `strace`, `unshare` and `ip`; it skips with a message when they are missing, and CI runs it in strict mode. `scripts/cross-check.sh` needs Docker and builds what a Linux machine cannot run natively: a static musl binary run in Alpine, a Windows build run under Wine together with the test suite, and macOS binaries that are compiled and linked but cannot be executed there.
 
 ## Rules every change must follow
 

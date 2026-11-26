@@ -228,6 +228,7 @@ fn statusline_survives_a_broken_config() {
     assert!(err.contains("config.toml cannot be read"), "{err}");
 }
 
+#[cfg(unix)]
 #[test]
 fn statusline_passes_the_chained_output_through() {
     let env = Env::new();
@@ -416,8 +417,11 @@ fn up_edits_settings_json_and_keeps_a_backup() {
     let o = child.wait_with_output().unwrap();
     let text_now = std::fs::read_to_string(&settings).unwrap();
     assert!(text_now.contains("statusLine") && text_now.contains("SessionStart"), "{text_now}\n{}", text(&o.stderr));
-    let named = format!("--home '{}' statusline", env.home.display());
-    assert!(text_now.contains(&named), "a data directory other than the default is named in the command: {text_now}");
+    let home_in_command = env.home.display().to_string().replace('\\', "/");
+    assert!(
+        text_now.contains("--home ") && text_now.replace("\\\\", "/").replace('\\', "/").contains(&home_in_command),
+        "a data directory other than the default is named in the command: {text_now}"
+    );
     assert!(text_now.contains("\"model\": \"opus\""));
     assert!(backup(&env.claude));
     let out = text(&o.stdout);
