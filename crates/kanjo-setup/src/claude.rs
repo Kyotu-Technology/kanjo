@@ -261,7 +261,7 @@ fn chain_of(config: &Config, exe: Option<&Path>) -> Option<String> {
 /// valid JSON is reported in `settings_error`, not as an error.
 pub fn status(paths: &Paths, config: &Config) -> Result<IntegrationStatus> {
     let path = paths.claude_settings();
-    let exe = std::env::current_exe().ok();
+    let exe = crate::current_exe().ok();
     let mut st = IntegrationStatus {
         settings_exists: path.exists(),
         settings_path: path.clone(),

@@ -202,7 +202,7 @@ fn run_server(lang: Lang, paths: Paths, config: Config, open_browser: bool, demo
 }
 
 fn exe(lang: Lang) -> CliResult<PathBuf> {
-    std::env::current_exe().map_err(|e| {
+    kanjo_setup::current_exe().map_err(|e| {
         fail(
             tr!(lang, "Kanjo cannot find its own program file ({e}).", "Kanjo nie może znaleźć własnego pliku programu ({e})."),
             lang.t(
