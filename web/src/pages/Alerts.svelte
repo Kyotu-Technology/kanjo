@@ -4,6 +4,8 @@
   import { useQuery } from '../lib/api/query.svelte';
   import { fmt, i18n, t, tn } from '../lib/i18n/index.svelte';
   import { describeError } from '../lib/stores/app.svelte';
+  import { runExport } from '../lib/shell/actions';
+  import { usePageExport, type PageExport } from '../lib/shell/exports.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
   import PageHeader from '../lib/ui/PageHeader.svelte';
@@ -40,9 +42,15 @@
     el?.focus({ preventScroll: true });
     setTimeout(() => (highlight = null), 2400);
   }
+  const exp = $derived<PageExport>({ kind: 'server', view: 'alerts', query: { q: filter === 'open' ? 'open' : undefined, lang: i18n.lang } });
+  usePageExport(() => exp);
 </script>
 
-<PageHeader title={t('pages.alerts.title')} lede={t('pages.alerts.lede')} />
+<PageHeader title={t('pages.alerts.title')} lede={t('pages.alerts.lede')}>
+  {#snippet meta()}
+    <Button size="sm" icon="download" onclick={() => runExport(exp)}>{t('common.export')}</Button>
+  {/snippet}
+</PageHeader>
 
 {#if alerts.error && !a && budgets.error && !b}
   <Banner tone="warning" title={t('common.error_title')} body={describeError(alerts.error)}>

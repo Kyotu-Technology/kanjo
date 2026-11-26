@@ -23,7 +23,7 @@ fn all() -> HookInstallRequest {
 }
 
 fn install(e: &Env, cfg: &mut Config, exe: &str) -> InstallReport {
-    install_with(&e.paths, cfg, &all(), Path::new(exe), Shell::Posix, 1_795_645_800_000).unwrap()
+    install_with(&e.paths, cfg, &all(), Path::new(exe), None, Shell::Posix, 1_795_645_800_000).unwrap()
 }
 
 fn uninstall(e: &Env, cfg: &mut Config, exe: &str) -> InstallReport {
@@ -228,7 +228,7 @@ fn invalid_json_changes_nothing() {
     let bad = "{\n  \"model\": \"opus\",\n";
     let e = env(Some(bad));
     let mut cfg = Config::default();
-    let err = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Shell::Posix, 0).unwrap_err();
+    let err = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), None, Shell::Posix, 0).unwrap_err();
     assert!(matches!(err, Error::Invalid(_)), "{err}");
     assert!(uninstall_with(&e.paths, &mut cfg, Path::new(EXE), 0).is_err());
     assert_eq!(text(&e), bad);
@@ -238,9 +238,9 @@ fn invalid_json_changes_nothing() {
     assert!(st.settings_exists && st.settings_error.is_some() && !st.statusline_installed());
 
     let e = env(Some("[1, 2]"));
-    assert!(install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Shell::Posix, 0).is_err());
+    assert!(install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), None, Shell::Posix, 0).is_err());
     let e = env(Some(r#"{"hooks": []}"#));
-    assert!(install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Shell::Posix, 0).is_err());
+    assert!(install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), None, Shell::Posix, 0).is_err());
     assert_eq!(text(&e), r#"{"hooks": []}"#);
 }
 
@@ -249,7 +249,7 @@ fn keeps_indentation_and_partial_requests() {
     let e = env(Some("{\n    \"theme\": \"dark\"\n}"));
     let mut cfg = Config::default();
     let req = HookInstallRequest { statusline: false, session_hooks: true, service: true };
-    let r = install_with(&e.paths, &mut cfg, &req, Path::new(EXE), Shell::Posix, 0).unwrap();
+    let r = install_with(&e.paths, &mut cfg, &req, Path::new(EXE), None, Shell::Posix, 0).unwrap();
     assert!(!r.statusline_installed && r.session_hooks_installed);
     let t = text(&e);
     assert!(t.starts_with("{\n    \"theme\": \"dark\",\n    \"hooks\": {\n        \"SessionStart\""), "{t}");
@@ -263,15 +263,15 @@ fn powershell_hooks_name_their_shell() {
     let e = env(None);
     let mut cfg = Config::default();
     let exe = Path::new(r"C:\Program Files\Kanjo\kanjo.exe");
-    install_with(&e.paths, &mut cfg, &all(), exe, Shell::PowerShell, 0).unwrap();
+    install_with(&e.paths, &mut cfg, &all(), exe, None, Shell::PowerShell, 0).unwrap();
     let v = json_of(&e);
     assert_eq!(v["statusLine"]["command"], "& 'C:/Program Files/Kanjo/kanjo.exe' statusline");
     assert_eq!(
         v["hooks"]["SessionEnd"][0]["hooks"][0],
         json!({"type": "command", "command": "& 'C:/Program Files/Kanjo/kanjo.exe' hook", "shell": "powershell"})
     );
-    assert!(!install_with(&e.paths, &mut cfg, &all(), exe, Shell::PowerShell, 0).unwrap().changed);
-    let r = install_with(&e.paths, &mut cfg, &all(), exe, Shell::GitBash, 0).unwrap();
+    assert!(!install_with(&e.paths, &mut cfg, &all(), exe, None, Shell::PowerShell, 0).unwrap().changed);
+    let r = install_with(&e.paths, &mut cfg, &all(), exe, None, Shell::GitBash, 0).unwrap();
     assert!(r.changed);
     assert_eq!(json_of(&e)["hooks"]["SessionEnd"][0]["hooks"][0]["command"], "'C:/Program Files/Kanjo/kanjo.exe' hook");
     assert_eq!(kanjo_hook_count(&json_of(&e), "SessionEnd"), 1);
@@ -305,4 +305,39 @@ fn status_of_a_fresh_machine() {
     let st = status(&e.paths, &Config::default()).unwrap();
     assert_eq!(st.statusline, StatuslineSlot::Foreign { command: Some("npx -y ccstatusline@latest".into()) });
     assert_eq!(st.chain_command, None);
+}
+
+#[test]
+fn a_custom_data_directory_is_named_in_every_command_and_still_recognised() {
+    let e = env(Some(FOREIGN_HOOKS));
+    let mut cfg = Config::default();
+    let home = e.paths.home.clone();
+    let r = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Some(&home), Shell::Posix, 0).unwrap();
+    assert!(r.statusline_installed && r.session_hooks_installed);
+    let v = json_of(&e);
+    let expect = |arg: &str| format!("'{EXE}' --home '{}' {arg}", home.display());
+    assert_eq!(v["statusLine"]["command"], expect("statusline"));
+    for ev in HOOK_EVENTS {
+        assert_eq!(kanjo_hook_count(&v, ev), 1, "{ev}");
+    }
+    assert!(text(&e).contains(&expect("hook")));
+    let again = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Some(&home), Shell::Posix, 0).unwrap();
+    assert!(!again.changed, "reinstalling with the same directory is a no-op");
+    let moved = install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), None, Shell::Posix, 0).unwrap();
+    assert!(moved.changed && cfg.statusline.chain_command.is_none(), "Kanjo never chains to itself");
+    for ev in HOOK_EVENTS {
+        assert_eq!(kanjo_hook_count(&json_of(&e), ev), 1, "{ev}");
+    }
+    install_with(&e.paths, &mut cfg, &all(), Path::new(EXE), Some(&home), Shell::Posix, 0).unwrap();
+    uninstall(&e, &mut cfg, EXE);
+    let after = text(&e);
+    assert!(!after.contains("statusline") && !after.contains(" hook"), "{after}");
+    assert!(after.contains("/usr/local/bin/guard") && after.contains("notify-send done"));
+}
+
+#[test]
+fn a_relative_data_directory_is_named_absolutely() {
+    let paths = Paths::at("relative/kanjo-data", "/nowhere/claude");
+    let home = home_arg(&paths).unwrap();
+    assert!(home.is_absolute() && home.ends_with("relative/kanjo-data"), "{}", home.display());
 }

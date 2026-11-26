@@ -144,7 +144,96 @@ jobs:
       - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
         with:
           tool: cargo-audit@0.23.0
-      - run: cargo audit
+      - name: cargo audit against a fresh advisory database
+        run: scripts/cargo-audit.sh
+
+  msrv:
+    name: Minimum Rust version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the rust-version of the workspace
+        run: |
+          msrv=$(sed -n '/^\[workspace.package\]/,/^\[/s/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          [ -n "$msrv" ] || { echo "::error::no rust-version in [workspace.package]"; exit 1; }
+          rustup toolchain install "$msrv" --profile minimal && rustup default "$msrv"
+      - name: Stub the embedded UI
+        run: scripts/ci-web-stub.sh
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check --workspace --locked
+
+  windows-static:
+    name: Windows binary without runtime dependencies
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --target "$TARGET" --component llvm-tools && rustup default stable
+      - name: Use Strawberry Perl for the vendored OpenSSL
+        shell: pwsh
+        run: scripts/ci-windows-perl.ps1
+      - name: Stub the embedded UI
+        run: scripts/ci-web-stub.sh
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
+        with:
+          tool: cargo-auditable@0.7.8,cargo-audit@0.23.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build with the release flags
+        run: scripts/release-build.sh dev
+      - name: Check the imported DLLs
+        run: scripts/check-binary.sh "target/$TARGET/debug/kanjo.exe" "$TARGET"
+      - name: cargo audit bin, as the release does
+        run: scripts/cargo-audit.sh bin "target/$TARGET/debug/kanjo.exe"
+
+  installers:
+    name: Installers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the shell scripts
+        if: runner.os == 'Linux'
+        run: shellcheck -s sh install/install.sh scripts/*.sh
+      - name: Test install.sh
+        if: runner.os != 'Windows'
+        run: sh scripts/test-install.sh
+      - name: Test install.ps1 under Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-install.ps1
+      - name: Test install.ps1 under PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test-install.ps1
 
   egress:
     name: Zero-egress test

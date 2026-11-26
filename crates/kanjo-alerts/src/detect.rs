@@ -174,6 +174,10 @@ pub(crate) fn status(conn: &Connection, session_id: &str) -> Result<Option<Statu
 }
 
 /// Display label of a project: its alias when path redaction is on, otherwise its name.
+pub(crate) fn client_alias(conn: &Connection, name: &str) -> Result<String> {
+    kanjo_core::store::write::alias(conn, "client", name)
+}
+
 pub(crate) fn project_label(conn: &Connection, project_id: i64, redact: bool) -> Result<Option<String>> {
     Ok(conn
         .query_row("SELECT CASE WHEN ?2 THEN alias ELSE name END FROM projects WHERE id = ?1", params![project_id, redact], |r| r.get(0))

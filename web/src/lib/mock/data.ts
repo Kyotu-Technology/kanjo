@@ -21,6 +21,7 @@ export const PRICES: Record<string, Price> = {
   'claude-opus-4-5': { input: 5, output: 25, cache_read: 0.5, cache_write_5m: 6.25, cache_write_1h: 10 },
   'claude-sonnet-4-5': { input: 3, output: 15, cache_read: 0.3, cache_write_5m: 3.75, cache_write_1h: 6 },
   'claude-haiku-4-5': { input: 1, output: 5, cache_read: 0.1, cache_write_5m: 1.25, cache_write_1h: 2 },
+  'claude-fable-5-2': { input: 2, output: 10, cache_read: 0.2, cache_write_5m: 2.5, cache_write_1h: 4 },
 };
 export const UNPRICED_MODEL = 'claude-nova-preview';
 
@@ -294,7 +295,8 @@ function generate(now: number, rand: () => number, withUnpriced: boolean): { ses
           cache_write_5m: Math.round(range(rand, 5000, 25_000)),
           cache_write_1h: 0,
         };
-        const subModel = rand() < 0.7 ? 'claude-haiku-4-5' : 'claude-sonnet-4-5';
+        const roll = rand();
+        const subModel = roll < 0.5 ? 'claude-haiku-4-5' : roll < 0.7 ? 'claude-fable-5-2' : 'claude-sonnet-4-5';
         records.push({
           id: `msg-${records.length.toString(36)}`,
           ts: ts + 60_000,
@@ -361,7 +363,7 @@ export function auditEntry(ds: Dataset, action: string, target: string, detail: 
     actor: 'local',
     action,
     target,
-    detail: detail as AuditEntry['detail'],
+    detail: { ...detail, client: '127.0.0.1' } as AuditEntry['detail'],
     hash: hashHex(prev + action + target),
   };
   ds.audit.unshift(entry);
@@ -474,16 +476,29 @@ function seedAlerts(ds: Dataset): void {
   if (ds.scenario === 'empty' || ds.scenario === 'onboarding') return;
   const now = ds.clock();
   const push = (a: Omit<Alert, 'id' | 'title' | 'message'>) => ds.alerts.push({ ...a, id: ds.nextId++, title: '', message: '' });
-  push({ ts: now - 26 * 60_000, kind: 'limit_forecast', severity: 'warning', params: { window: 'seven_day' }, acknowledged_at: null });
-  push({ ts: now - 3 * HOUR, kind: 'budget_warning', severity: 'warning', params: { budget_id: 2, pct: 84 }, acknowledged_at: null });
+  const limitBase = (window: string, used: number, ts: number, resets: number) => ({ window, used_pct: used, resets_at: resets, observed_at: ts, evaluated_at: ts, tz_offset_min: -new Date(ts).getTimezoneOffset() });
+  push({
+    ts: now - 26 * 60_000,
+    kind: 'limit_forecast',
+    severity: 'warning',
+    params: { ...limitBase('seven_day', 57, now - 26 * 60_000, now + 3 * DAY), exhausts_at: now + 2 * DAY, rate_pct_per_hour: 0.9 },
+    acknowledged_at: null,
+  });
+  push({
+    ts: now - 3 * HOUR,
+    kind: 'budget_warning',
+    severity: 'warning',
+    params: { budget_id: 2, name: 'Northwind billing work', scope: 'project', scope_value: '1', scope_label: 'atlas-billing', period: 'month', amount_usd: 165, spent_usd: 138.6, spent_pct: 84, warn_pct: 80, projected_usd: 190 },
+    acknowledged_at: null,
+  });
   const ctxSession = ds.sessions.find((s) => s.project === 1 && s.last >= now - 10 * 60_000);
   const quill = [...ds.sessions].reverse().find((s) => s.project === 3 && s.last < now - 2 * DAY);
   const costly = [...ds.sessions].reverse().find((s) => s.project === 2 && s.last < now - DAY);
-  push({ ts: now - 5 * HOUR, kind: 'context_near_limit', severity: 'info', params: { pct: 88, session_id: ctxSession?.id ?? null, project_id: 1, project: 'atlas-billing' }, acknowledged_at: null });
-  push({ ts: now - 2 * DAY, kind: 'cache_miss_streak', severity: 'info', params: { misses: 4, session_id: quill?.id ?? null, project_id: 3, project: 'quill-api' }, acknowledged_at: now - 2 * DAY + HOUR });
-  push({ ts: costly ? costly.last : now - 30 * HOUR, kind: 'runaway_session', severity: 'critical', params: { ratio: 3.1, session_id: costly?.id ?? null, project_id: 2, project: 'harbor-web' }, acknowledged_at: (costly ? costly.last : now - 30 * HOUR) + 40 * 60_000 });
-  push({ ts: now - 4 * DAY, kind: 'cost_spike', severity: 'warning', params: { ratio: 2.4 }, acknowledged_at: now - 4 * DAY + 2 * HOUR });
-  push({ ts: now - 6 * DAY, kind: 'limit_threshold', severity: 'warning', params: { window: 'five_hour', pct: 90 }, acknowledged_at: now - 6 * DAY + 600_000 });
+  push({ ts: now - 5 * HOUR, kind: 'context_near_limit', severity: 'info', params: { session_id: ctxSession?.id ?? null, project_id: 1, project: 'atlas-billing', ctx_used_pct: 88, ctx_size: 200_000, threshold: 85 }, acknowledged_at: null });
+  push({ ts: now - 2 * DAY, kind: 'cache_miss_streak', severity: 'info', params: { session_id: quill?.id ?? null, project_id: 3, project: 'quill-api', misses: 4, window_minutes: 30 }, acknowledged_at: now - 2 * DAY + HOUR });
+  push({ ts: costly ? costly.last : now - 30 * HOUR, kind: 'runaway_session', severity: 'critical', params: { session_id: costly?.id ?? null, project_id: 2, project: 'harbor-web', cost_usd: 41.2, median_usd: 13.3, factor: 3.1, baseline_sessions: 40 }, acknowledged_at: (costly ? costly.last : now - 30 * HOUR) + 40 * 60_000 });
+  push({ ts: now - 4 * DAY, kind: 'cost_spike', severity: 'warning', params: { cost_usd: 96, median_usd: 40, factor: 2.4, baseline_days: 28 }, acknowledged_at: now - 4 * DAY + 2 * HOUR });
+  push({ ts: now - 6 * DAY, kind: 'limit_threshold', severity: 'warning', params: { ...limitBase('five_hour', 91, now - 6 * DAY, now - 6 * DAY + 2 * HOUR), threshold: 90 }, acknowledged_at: now - 6 * DAY + 600_000 });
   ds.alerts.sort((a, b) => b.ts - a.ts);
 }
 

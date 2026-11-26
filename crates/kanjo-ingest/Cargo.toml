@@ -23,4 +23,5 @@ workspace = true
 
 [dev-dependencies]
 kanjo-core = { path = "../kanjo-core", features = ["testkit"] }
+kanjo-ops = { path = "../kanjo-ops" }
 tempfile = "3"

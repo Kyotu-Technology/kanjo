@@ -520,7 +520,8 @@ pub(crate) struct Chunk {
     pub rows: Vec<RequestRow>,
     index: HashMap<String, usize>,
     pub cwd: Option<String>,
-    pub titles: Vec<(String, String)>,
+    /// Session, title, and the time of the last timestamped record before it (0 when none).
+    pub titles: Vec<(String, String, i64)>,
     pub owners: Vec<(String, String)>,
     pub tools: Vec<ToolsSeen>,
     pub quarantine: Vec<Quarantined>,
@@ -732,7 +733,7 @@ fn meta(kind: &'static str, line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
         "ai-title" => {
             if ctx.titles {
                 if let Some(title) = rec.ai_title.get() {
-                    out.titles.push((session(), title.to_string()));
+                    out.titles.push((session(), title.to_string(), ctx.last_ts));
                 }
             }
         }

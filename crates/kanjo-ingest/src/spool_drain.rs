@@ -5,16 +5,22 @@ use crate::{lock, pipeline, Ingestor, SpoolReport};
 use kanjo_core::limits::{self, LimitKind, LimitSample};
 use kanjo_core::spool::{self, HookRecord, SpoolRecord, SPOOL_PREFIX, SPOOL_SUFFIX};
 use kanjo_core::statusline::StatuslineRecord;
-use kanjo_core::time::DAY_MS;
+use kanjo_core::store::write;
+use kanjo_core::time::{DAY_MS, MINUTE_MS};
 use kanjo_core::Result;
-use rusqlite::{params, Connection};
+#[cfg(test)]
+use kanjo_core::{time::HOUR_MS, Store};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 
 const RECORDS_PER_TX: usize = 2000;
+/// An earlier day's file is only finished (partial line consumed, file deleted)
+/// once it has not changed for this long: a writer that took its timestamp just
+/// before midnight may still be appending to it.
+const SETTLE_MS: i64 = 2 * MINUTE_MS;
 
 fn spool_files(dir: &Path) -> Vec<(i64, PathBuf)> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
@@ -48,12 +54,12 @@ impl Ingestor {
 
     pub(crate) fn drain_spool_at(&self, now: i64) -> Result<SpoolReport> {
         let _guard = lock(&self.spool);
+        self.clear_titles_if_off();
         let files = spool_files(&self.paths.spool_dir());
         if files.is_empty() {
             return Ok(SpoolReport::default());
         }
         let cursors = self.store.read(|c| pipeline::cursors(c, &["spool"]))?;
-        let titles = self.titles.load(Ordering::Relaxed);
         let today = now.div_euclid(DAY_MS);
         let mut applied = Applied::default();
         for (day, path) in files {
@@ -69,9 +75,10 @@ impl Ingestor {
                 Some(c) if size >= c.offset => c.offset,
                 _ => 0,
             };
-            let old_day = day < today;
+            let old_day = day < today && (day < today - 1 || now - mtime >= SETTLE_MS);
             if offset < size || cursor.is_none() {
-                offset = self.drain_file(&path, &key, offset, size, mtime, old_day, titles, &mut applied)?;
+                let expected = cursor.map(|c| c.offset);
+                offset = self.drain_file(&path, &key, expected, offset, size, mtime, old_day, now, &mut applied)?;
             }
             if old_day && offset >= size {
                 if let Err(e) = std::fs::remove_file(&path) {
@@ -90,17 +97,20 @@ impl Ingestor {
     }
 
     /// Returns the new offset. A trailing partial line of an earlier day will
-    /// never be completed, so it counts as consumed.
+    /// never be completed, so it counts as consumed. `expected` is the cursor
+    /// this pass started from; when another collector (a second process on the
+    /// same data directory) has moved it meanwhile, its lines are not applied twice.
     #[allow(clippy::too_many_arguments)]
     fn drain_file(
         &self,
         path: &Path,
         key: &str,
+        mut expected: Option<u64>,
         start: u64,
         size: u64,
         mtime: i64,
         old_day: bool,
-        titles: bool,
+        now: i64,
         applied: &mut Applied,
     ) -> Result<u64> {
         let mut file = File::open(path)?;
@@ -124,10 +134,17 @@ impl Ingestor {
             }
             if !complete || records.len() >= RECORDS_PER_TX {
                 let at = consumed;
-                self.store.write(|tx| {
+                let moved = self.store.write(|tx| {
+                    let stored: Option<i64> =
+                        tx.query_row("SELECT \"offset\" FROM ingest_files WHERE path = ?1", [key], |r| r.get(0)).optional()?;
+                    let stored = stored.map(|o| o as u64);
+                    if stored != expected {
+                        return Ok(Some(stored.unwrap_or(0)));
+                    }
+                    let titles = self.titles_on();
                     for r in &records {
                         match r {
-                            SpoolRecord::Statusline(s) => apply_statusline(tx, s, titles, applied)?,
+                            SpoolRecord::Statusline(s) => apply_statusline(tx, s, titles, now, applied)?,
                             SpoolRecord::Hook(h) => apply_hook(tx, h, applied)?,
                         }
                     }
@@ -138,8 +155,13 @@ impl Ingestor {
                            mtime = excluded.mtime, updated_at = excluded.updated_at",
                     )?
                     .execute(params![key, size as i64, at as i64, mtime, kanjo_core::time::now_ms()])?;
-                    Ok(())
+                    Ok(None)
                 })?;
+                if let Some(other) = moved {
+                    tracing::debug!("spool file drained by another collector");
+                    return Ok(other);
+                }
+                expected = Some(at);
                 records.clear();
             }
             if !complete {
@@ -149,11 +171,18 @@ impl Ingestor {
     }
 }
 
-fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, applied: &mut Applied) -> Result<()> {
-    applied.statusline += 1;
-    applied.sessions.insert(r.session_id.clone());
+fn project_by_path(tx: &Connection, dir: Option<&str>) -> Result<Option<i64>> {
+    let Some(dir) = dir else { return Ok(None) };
+    Ok(tx.prepare_cached("SELECT id FROM projects WHERE path = ?1")?.query_row([dir], |r| r.get(0)).optional()?)
+}
+
+fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, now: i64, applied: &mut Applied) -> Result<()> {
+    if write::is_purged(tx, "", None, r.ts)? {
+        return Ok(());
+    }
     for (kind, w) in [(LimitKind::FiveHour, &r.five_hour), (LimitKind::SevenDay, &r.seven_day), (LimitKind::Spend, &r.spend)] {
         let Some(w) = w else { continue };
+        limits::discard_future(tx, kind, now)?;
         let sample = LimitSample {
             ts: r.ts,
             used_pct: w.used_pct,
@@ -166,6 +195,11 @@ fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, applied
             applied.limits_changed = true;
         }
     }
+    if write::is_purged(tx, &r.session_id, project_by_path(tx, r.project_dir.as_deref())?, r.ts)? {
+        return Ok(());
+    }
+    applied.statusline += 1;
+    applied.sessions.insert(r.session_id.clone());
     let session_name = if titles { r.session_name.as_deref().filter(|s| !s.is_empty()) } else { None };
     let c = r.cache.as_ref();
     let causes = match c {
@@ -190,7 +224,7 @@ fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, applied
             cache_write_tokens = excluded.cache_write_tokens, cache_miss_recache_tokens = excluded.cache_miss_recache_tokens,
             cache_last_miss_at = excluded.cache_last_miss_at, cache_recache_if_cold = excluded.cache_recache_if_cold,
             cache_miss_causes = excluded.cache_miss_causes
-         WHERE excluded.ts >= session_status.ts",
+         WHERE excluded.ts >= session_status.ts OR session_status.ts > ?31",
     )?
     .execute(params![
         r.session_id,
@@ -223,6 +257,7 @@ fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, applied
         c.and_then(|c| c.last_miss_at),
         c.and_then(|c| c.recache_tokens_if_cold),
         causes,
+        now + limits::CLOCK_AHEAD_TOLERANCE_MS,
     ])?;
     if let Some((c, at)) = c.and_then(|c| c.last_miss_at.map(|at| (c, at))) {
         tx.prepare(
@@ -248,9 +283,106 @@ fn apply_hook(tx: &Connection, h: &HookRecord, applied: &mut Applied) -> Result<
     if h.session_id.is_empty() || h.event.is_empty() {
         return Ok(());
     }
+    if write::is_purged(tx, &h.session_id, project_by_path(tx, h.cwd.as_deref())?, h.ts)? {
+        return Ok(());
+    }
     tx.prepare("INSERT INTO session_events (ts, session_id, event, source, cwd, model, agent_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?
         .execute(params![h.ts, h.session_id, h.event, h.source, h.cwd, h.model, h.agent_type])?;
     applied.hooks += 1;
     applied.sessions.insert(h.session_id.clone());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanjo_core::paths::Paths;
+    use kanjo_core::statusline::WindowRecord;
+    use kanjo_core::testkit::TestStore;
+    use std::sync::Arc;
+
+    fn setup() -> (TestStore, Arc<Store>, Ingestor) {
+        let t = TestStore::new();
+        let store = Arc::new(Store::open(t.store.path(), None, None).unwrap());
+        let paths = Paths::at(t.dir.path().join("home"), t.dir.path().join("claude"));
+        let ing = Ingestor::new(store.clone(), paths).unwrap();
+        (t, store, ing)
+    }
+
+    fn hook(ts: i64, event: &str) -> SpoolRecord {
+        SpoolRecord::Hook(HookRecord { ts, event: event.into(), session_id: "s1".into(), ..Default::default() })
+    }
+
+    fn events(store: &Store) -> i64 {
+        store.read(|c| Ok(c.query_row("SELECT count(*) FROM session_events", [], |r| r.get(0))?)).unwrap()
+    }
+
+    #[test]
+    fn a_late_line_in_yesterdays_file_is_read_before_the_file_goes() {
+        let (_t, store, ing) = setup();
+        let dir = ing.paths.spool_dir();
+        let now = kanjo_core::time::now_ms();
+        let yesterday = now.div_euclid(DAY_MS) * DAY_MS - 1_000;
+        spool::append(&dir, yesterday, &hook(yesterday, "Stop")).unwrap();
+        ing.drain_spool_at(now).unwrap();
+        assert!(spool::file_for(&dir, yesterday).exists(), "a file written to moments ago is kept");
+        spool::append(&dir, yesterday, &hook(yesterday + 1, "SessionEnd")).unwrap();
+        ing.drain_spool_at(now).unwrap();
+        assert_eq!(events(&store), 2, "the late line is applied");
+        ing.drain_spool_at(now + SETTLE_MS + 5_000).unwrap();
+        assert!(!spool::file_for(&dir, yesterday).exists(), "deleted once it settled");
+        assert_eq!(events(&store), 2);
+    }
+
+    #[test]
+    fn lines_another_collector_applied_are_not_applied_again() {
+        let (_t, store, ing) = setup();
+        let dir = ing.paths.spool_dir();
+        let now = kanjo_core::time::now_ms();
+        for i in 0..3 {
+            spool::append(&dir, now, &hook(now + i, "Stop")).unwrap();
+        }
+        let path = spool::file_for(&dir, now);
+        let key = path.to_string_lossy().into_owned();
+        let size = std::fs::metadata(&path).unwrap().len();
+        let mut applied = Applied::default();
+        assert_eq!(ing.drain_file(&path, &key, None, 0, size, 0, false, now, &mut applied).unwrap(), size);
+        let mut stale = Applied::default();
+        assert_eq!(
+            ing.drain_file(&path, &key, None, 0, size, 0, false, now, &mut stale).unwrap(),
+            size,
+            "this pass read the cursor before the other one moved it"
+        );
+        assert_eq!((stale.hooks, events(&store)), (0, 3));
+    }
+
+    #[test]
+    fn readings_from_a_clock_that_ran_ahead_do_not_block_later_ones() {
+        let (_t, store, ing) = setup();
+        let now = kanjo_core::time::now_ms();
+        let status = |ts: i64, pct: f64| {
+            SpoolRecord::Statusline(StatuslineRecord {
+                ts,
+                session_id: "s1".into(),
+                five_hour: Some(WindowRecord { used_pct: pct, resets_at: ts + HOUR_MS, ..Default::default() }),
+                ..Default::default()
+            })
+        };
+        let dir = ing.paths.spool_dir();
+        spool::append(&dir, now, &status(now + 3 * HOUR_MS, 50.0)).unwrap();
+        ing.drain_spool_at(now).unwrap();
+        spool::append(&dir, now, &status(now + MINUTE_MS, 20.0)).unwrap();
+        let r = ing.drain_spool_at(now + MINUTE_MS).unwrap();
+        assert!(r.limits_changed);
+        let (pct, ts): (f64, i64) = store
+            .read(|c| {
+                Ok(c.query_row("SELECT s.used_pct, st.ts FROM limit_samples s, session_status st ORDER BY s.ts DESC LIMIT 1", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?)
+            })
+            .unwrap();
+        assert_eq!((pct, ts), (20.0, now + MINUTE_MS));
+        let n: i64 = store.read(|c| Ok(c.query_row("SELECT count(*) FROM limit_samples", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(n, 1, "the future reading is discarded");
+    }
 }

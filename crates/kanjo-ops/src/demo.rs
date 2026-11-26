@@ -40,6 +40,7 @@ pub fn populate_in(store: &Store, ctx: &Ctx, days: u32, seed: u64) -> Result<()>
             return Err(Error::Invalid("demo data is only written into an empty database".into()));
         }
         crate::retention::purge_tx(tx, &kanjo_core::api::PurgeRequest { everything: true, ..Default::default() })?;
+        kanjo_core::store::write::clear_purge_marks(tx)?;
         tx.execute("DELETE FROM budgets", [])?;
         let mut g = Gen::new(tx, ctx, days, seed)?;
         g.history();

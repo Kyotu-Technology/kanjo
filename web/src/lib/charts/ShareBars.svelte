@@ -8,6 +8,7 @@
     color?: string;
     sublabel?: string | null;
     href?: string;
+    title?: string;
   }
   interface Props {
     rows: Row[];
@@ -24,7 +25,7 @@
       <div class="line">
         <span class="name">
           {#if r.color}<span class="dot" style="background:{r.color}"></span>{/if}
-          {#if r.href}<a href={r.href}>{r.label}</a>{:else}{r.label}{/if}
+          {#if r.href}<a href={r.href} title={r.title}>{r.label}</a>{:else}<span title={r.title}>{r.label}</span>{/if}
           {#if r.sublabel}<span class="sub">{r.sublabel}</span>{/if}
         </span>
         <span class="val"><span class="amount">{r.value}</span><span class="pct">{shareFormat(r.share)}</span></span>

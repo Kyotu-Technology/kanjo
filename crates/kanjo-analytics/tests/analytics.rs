@@ -254,7 +254,7 @@ fn redaction_hides_names_paths_branches_and_titles() {
     assert_eq!(an::search(&fx.t.store, &ctx(), &Query { q: Some("secret".into()), ..Query::default() }).unwrap().len(), 2);
 
     fx.settings(|s| s.privacy.redact_paths = true);
-    let alias = kanjo_core::store::write::project_alias("acme-secret");
+    let alias = fx.t.store.read(|c| kanjo_core::store::write::project_alias(c, "acme-secret")).unwrap();
     let list = an::sessions(&fx.t.store, &ctx(), &Query::default()).unwrap();
     let s = &list.items[0];
     assert_eq!((s.project.as_str(), s.title.as_deref(), s.git_branch.as_deref()), (alias.as_str(), None, None));
@@ -455,6 +455,110 @@ fn plan_fit_recommendations() {
     let fit = an::plan_fit(&fresh.t.store, &ctx()).unwrap();
     assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Api), "api_cheaper"));
     assert!(fit.roi.unwrap() < 1.0);
+}
+
+#[test]
+fn plan_fit_scales_a_short_history_to_a_month() {
+    let usd_per_input = cost(&request("probe", "s", NOW, OPUS, 1_000_000, 0)) / 1e6;
+    let tokens = |usd: f64| (usd / usd_per_input).round() as i64;
+    let heavy = Fx::new();
+    let p = heavy.project("alpha");
+    heavy.settings(|s| s.plan.kind = PlanKind::Max20x);
+    for d in 0..8 {
+        heavy.add(p, "s", NOW - d * DAY_MS - 30 * M, OPUS, tokens(20.0), 0);
+    }
+    let fit = an::plan_fit(&heavy.t.store, &ctx()).unwrap();
+    assert!((fit.api_equivalent_usd - 160.0).abs() < 1e-6, "{}", fit.api_equivalent_usd);
+    assert_eq!((fit.action, fit.reason.as_str()), (PlanAction::Keep, "within_plan"));
+    let span_days = 7.0 + 0.5 / 24.0;
+    assert!((fit.roi.unwrap() - 160.0 * 30.0 / span_days / 200.0).abs() < 1e-6, "{:?}", fit.roi);
+
+    let light = Fx::new();
+    let p = light.project("alpha");
+    light.settings(|s| s.plan.kind = PlanKind::Max20x);
+    for d in 0..8 {
+        light.add(p, "s", NOW - d * DAY_MS - H, OPUS, tokens(2.0), 0);
+    }
+    let fit = an::plan_fit(&light.t.store, &ctx()).unwrap();
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Api), "api_cheaper"));
+}
+
+#[test]
+fn projects_usage_30d_includes_the_current_hour() {
+    let fx = Fx::new();
+    let a = fx.project("alpha");
+    for d in 1..=10 {
+        fx.add(a, "s", NOW - d * DAY_MS, OPUS, 100, 10);
+    }
+    fx.add(a, "s", NOW - 10 * M, OPUS, 100, 10);
+    let p = an::projects(&fx.t.store, &ctx()).unwrap();
+    assert_eq!((p[0].usage_30d.requests, p[0].usage_total.requests), (11, 11));
+    assert!(close(p[0].usage_30d.cost_usd, p[0].usage_total.cost_usd));
+}
+
+#[test]
+fn redaction_hides_client_names_and_keeps_client_filters_working() {
+    let fx = Fx::new();
+    let a = fx.project("alpha");
+    let b = fx.project("beta");
+    fx.add(a, "s1", NOW - H, OPUS, 100, 10);
+    fx.add(b, "s2", NOW - H, OPUS, 200, 10);
+    an::update_project(&fx.t.store, &ctx(), a, &kanjo_core::api::ProjectPatch { client: Some("ACME Corp".into()), ..Default::default() })
+        .unwrap();
+    fx.settings(|s| s.privacy.redact_paths = true);
+    let alias = fx.t.store.read(|c| kanjo_core::store::write::alias(c, "client", "ACME Corp")).unwrap();
+    let alias = alias.as_str();
+
+    let projects = an::projects(&fx.t.store, &ctx()).unwrap();
+    let pa = projects.iter().find(|p| p.id == a).unwrap();
+    assert_eq!(pa.client.as_deref(), Some(alias));
+    let by_client = an::breakdown(&fx.t.store, &ctx(), &Query { by: Some(Dimension::Client), ..Query::default() }).unwrap();
+    assert!(by_client.rows.iter().all(|r| !r.key.contains("ACME") && !r.label.contains("ACME")));
+    assert!(by_client.rows.iter().any(|r| r.key == alias && r.label == alias));
+    let csv = an::export::breakdown_csv(&by_client);
+    assert!(!csv.contains("ACME"));
+
+    let filtered = an::usage_report(&fx.t.store, &ctx(), &Query { client: Some(alias.into()), ..Query::default() }).unwrap();
+    assert_eq!(filtered.total.requests, 1);
+
+    let p = an::update_project(
+        &fx.t.store,
+        &ctx(),
+        a,
+        &kanjo_core::api::ProjectPatch { client: Some(alias.into()), name: Some("Renamed".into()) },
+    )
+    .unwrap();
+    assert_eq!(p.client.as_deref(), Some(alias));
+    fx.settings(|s| s.privacy.redact_paths = false);
+    let projects = an::projects(&fx.t.store, &ctx()).unwrap();
+    assert_eq!(projects.iter().find(|p| p.id == a).unwrap().client.as_deref(), Some("ACME Corp"));
+}
+
+#[test]
+fn session_cache_misses_only_name_changes_that_can_explain_them() {
+    let fx = Fx::new();
+    let a = fx.project("alpha");
+    let b = fx.project("beta");
+    fx.add(a, "sa", NOW - 2 * H, OPUS, 100, 10);
+    fx.add(b, "sb", NOW - 2 * H, OPUS, 100, 10);
+    let miss = NOW - H;
+    fx.t.store
+        .write(|tx| {
+            Ok(tx.execute_batch(&format!(
+                "INSERT INTO cache_misses (session_id, ts, causes) VALUES ('sa', {miss}, '[]');
+                 INSERT INTO config_changes (ts, kind, target, project_id, fingerprint) VALUES
+                   ({t}, 'claude_md', 'user CLAUDE.md', NULL, 'f1'),
+                   ({t}, 'claude_md', 'alpha CLAUDE.md', {a}, 'f2'),
+                   ({t}, 'claude_md', 'beta CLAUDE.md', {b}, 'f3'),
+                   ({t}, 'tools', 'sa', {a}, 'f4'),
+                   ({t}, 'tools', 'other', {a}, 'f5');",
+                t = miss - 5 * M
+            ))?)
+        })
+        .unwrap();
+    let detail = an::session_detail(&fx.t.store, &ctx(), "sa").unwrap().unwrap();
+    let targets: Vec<&str> = detail.cache_misses[0].correlated_changes.iter().map(|c| c.target.as_str()).collect();
+    assert_eq!(targets, vec!["user CLAUDE.md", "alpha CLAUDE.md", "sa"]);
 }
 
 #[test]

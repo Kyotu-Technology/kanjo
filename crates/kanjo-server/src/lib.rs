@@ -23,6 +23,9 @@ pub use handlers::router;
 pub use net::{check_bind, start, Server};
 pub use state::AppState;
 
+/// Days of invented history a demo server starts with unless told otherwise.
+pub const DEMO_DAYS: u32 = 30;
+
 /// How to start the server.
 #[derive(Debug, Clone)]
 pub struct ServeOptions {
@@ -33,16 +36,25 @@ pub struct ServeOptions {
     /// Serve synthetic data: populate a demo database under `paths.home`, never
     /// read the Claude directory, never touch the OS keyring or settings.json.
     pub demo: bool,
+    /// Days of invented history in demo mode; `None` means [`DEMO_DAYS`].
+    pub demo_days: Option<u32>,
 }
 
 /// Runs the server until it is asked to stop (Ctrl-C or SIGTERM). Blocking;
 /// creates its own async runtime.
 pub fn run(opts: ServeOptions) -> Result<()> {
+    run_with(opts, |_| {})
+}
+
+/// [`run`], calling `ready` once the server listens (before the browser is
+/// opened), so a front end can print the address it really got.
+pub fn run_with(opts: ServeOptions, ready: impl FnOnce(&Server)) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let open = opts.open_browser;
     let result = rt.block_on(async move {
         let server = start(opts).await?;
         tracing::info!(url = %server.url(), "Kanjo is listening");
+        ready(&server);
         if open {
             open_in_browser(&server.login_url());
         }
@@ -65,18 +77,6 @@ pub async fn serve(opts: ServeOptions, shutdown: impl Future<Output = ()> + Send
         _ = server.stopped() => {}
     }
     server.shutdown().await
-}
-
-/// The address a browser should open, including the access token when authentication is on.
-pub fn access_url(paths: &Paths, config: &Config) -> Result<String> {
-    let addr = check_bind(config)?;
-    let base = net::base_url(config, addr);
-    if auth_enabled(config) {
-        let token = kanjo_ops::token::load_or_create(paths)?;
-        Ok(format!("{base}?token={token}"))
-    } else {
-        Ok(base)
-    }
 }
 
 /// `AuthMode::None` is honoured only on a loopback bind.

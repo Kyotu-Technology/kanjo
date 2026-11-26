@@ -7,7 +7,9 @@
   import EmptyState from '../../lib/ui/EmptyState.svelte';
   import InlineHelp from '../../lib/ui/InlineHelp.svelte';
   import Money from '../../lib/ui/Money.svelte';
+  import { modelLabel, modelTitle } from '../../lib/charts/series';
   import BlockTimeline from './BlockTimeline.svelte';
+  import { topRows } from './blocks';
 
   interface Props {
     blocks: Block[];
@@ -29,6 +31,8 @@
     { key: 'kind', label: t('pages.limits.timeline.col_kind'), value: (b) => (b.anchored ? 1 : 0) },
     { key: 'peak', label: t('pages.limits.peak'), align: 'end', value: (b) => b.peak_pct ?? -1 },
     { key: 'requests', label: t('pages.limits.timeline.col_requests'), align: 'end', value: (b) => b.usage.requests, optional: true },
+    { key: 'projects', label: t('pages.limits.timeline.col_projects'), optional: true },
+    { key: 'models', label: t('pages.limits.timeline.col_models'), optional: true },
     { key: 'cost', label: t('pages.limits.cost'), align: 'end', value: (b) => b.usage.cost_usd, header: badge },
   ]);
 </script>
@@ -62,6 +66,14 @@
           {#if b.peak_pct === null}<span class="quiet">{t('pages.limits.timeline.no_peak')}</span>{:else}{fmt.pct(b.peak_pct)}{/if}
         {:else if col.key === 'requests'}
           {fmt.number(b.usage.requests)}
+        {:else if col.key === 'projects' || col.key === 'models'}
+          {@const list = topRows(col.key === 'projects' ? b.by_project : b.by_model)}
+          <span class="split">
+            {#each list.top as r (r.key)}
+              <span title={col.key === 'models' ? modelTitle(r.key) : undefined}>{col.key === 'models' ? modelLabel(r.key) : r.label} <span class="amt">{fmt.money(r.usage.cost_usd)}</span></span>
+            {/each}
+            {#if list.more}<span class="quiet">{t('pages.limits.timeline.more', { count: fmt.number(list.more) })}</span>{/if}
+          </span>
         {:else}
           <Money usd={b.usage.cost_usd} confidence="lower_bound" size="sm" badge="none" />
         {/if}
@@ -99,5 +111,16 @@
   }
   .quiet {
     color: var(--ink-3);
+  }
+  .split {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+  .amt {
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
   }
 </style>

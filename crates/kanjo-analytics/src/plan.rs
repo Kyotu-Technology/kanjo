@@ -16,6 +16,8 @@ use kanjo_core::{Ctx, Result, Store};
 /// 5-hour peak under `DOWNGRADE_FIVE_HOUR_PCT` on a plan with a cheaper tier ->
 /// Downgrade (`low_utilisation`); API-equivalent cost below the subscription price ->
 /// Downgrade to API billing (`api_cheaper`); otherwise Keep (`within_plan`).
+/// With less than `LOOKBACK_DAYS` of history the API-equivalent cost is scaled to a
+/// `LOOKBACK_DAYS` pace for the `api_cheaper` test and for `roi`.
 /// Tier order: Pro < Max5x < Max20x.
 pub mod thresholds {
     pub const LOOKBACK_DAYS: i64 = 30;
@@ -68,6 +70,8 @@ pub fn plan_fit(store: &Store, ctx: &Ctx) -> Result<PlanFit> {
                 r.get(0)
             })?;
         let history_ok = first.is_some_and(|t| now - t >= MIN_HISTORY_DAYS * DAY_MS);
+        let span = (now - first.unwrap_or(from).max(from)).max(DAY_MS);
+        let api_pace = api * (LOOKBACK_DAYS * DAY_MS) as f64 / span as f64;
         let hot = blocks_near_limit >= UPGRADE_MIN_HOT_WINDOWS || max_seven_day_pct.is_some_and(|p| p >= UPGRADE_WEEKLY_PCT);
         let low =
             max_seven_day_pct.is_some_and(|p| p < DOWNGRADE_WEEKLY_PCT) && max_five_hour_pct.is_some_and(|p| p < DOWNGRADE_FIVE_HOUR_PCT);
@@ -82,7 +86,7 @@ pub fn plan_fit(store: &Store, ctx: &Ctx) -> Result<PlanFit> {
             }
         } else if let (true, Some(lower)) = (low, tier_shift(plan.kind, -1)) {
             (PlanAction::Downgrade, Some(lower), "low_utilisation")
-        } else if plan.kind != PlanKind::Api && subscription.is_some_and(|s| api < s) {
+        } else if plan.kind != PlanKind::Api && subscription.is_some_and(|s| api_pace < s) {
             (PlanAction::Downgrade, Some(PlanKind::Api), "api_cheaper")
         } else {
             (PlanAction::Keep, None, "within_plan")
@@ -91,7 +95,7 @@ pub fn plan_fit(store: &Store, ctx: &Ctx) -> Result<PlanFit> {
             months,
             api_equivalent_usd: api,
             subscription_usd: subscription,
-            roi: subscription.filter(|s| *s > 0.0).map(|s| api / s),
+            roi: subscription.filter(|s| *s > 0.0).map(|s| api_pace / s),
             max_five_hour_pct,
             max_seven_day_pct,
             blocks_near_limit,

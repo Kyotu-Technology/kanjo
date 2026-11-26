@@ -1,6 +1,6 @@
 //! The `alerts` table: insertion with deduplication, listing and acknowledgement.
 
-use crate::render::render;
+use crate::render::{render_styled, Style};
 use kanjo_core::api::{Alert, AlertKind, Query, Severity, Ts};
 use kanjo_core::Result;
 use rusqlite::{params, Connection};
@@ -27,8 +27,8 @@ pub(crate) struct StoredAlert {
 }
 
 impl StoredAlert {
-    pub fn render(self, lang: &str) -> Alert {
-        let (title, message) = render(self.kind, &self.params, lang);
+    pub fn render(self, style: &Style) -> Alert {
+        let (title, message) = render_styled(self.kind, &self.params, style);
         Alert {
             id: self.id,
             ts: self.ts,
@@ -108,8 +108,8 @@ pub(crate) struct Page {
     pub unacknowledged: i64,
 }
 
-/// Newest first. `q.q == "open"` keeps unacknowledged alerts only. Project labels in the
-/// parameters (`project`, and `scope_label` of project budgets) are refreshed from the project table so renames and redaction apply to old alerts.
+/// Newest first. `q.q == "open"` keeps unacknowledged alerts only. Labels in the parameters (project names, and
+/// client names of client budgets) are refreshed so renames and redaction apply to old alerts.
 pub(crate) fn page(conn: &Connection, q: &Query, redact: bool) -> Result<Page> {
     let open = q.q.as_deref().map(str::trim) == Some("open");
     let filter = if open { "WHERE acknowledged_at IS NULL" } else { "" };
@@ -144,28 +144,40 @@ pub(crate) fn page(conn: &Connection, q: &Query, redact: bool) -> Result<Page> {
                 continue;
             }
         };
-        let budget_project = (params.get("scope").and_then(Value::as_str) == Some("project"))
-            .then(|| params.get("scope_value").and_then(Value::as_str).and_then(|v| v.parse::<i64>().ok()))
-            .flatten();
-        for (field, pid) in [("project", params.get("project_id").and_then(Value::as_i64)), ("scope_label", budget_project)] {
-            let Some(pid) = pid else { continue };
-            let label = match labels.get(&pid) {
-                Some(l) => l.clone(),
-                None => {
-                    let l = crate::detect::project_label(conn, pid, redact)?;
-                    labels.insert(pid, l.clone());
-                    l
-                }
-            };
-            if let (Some(label), Some(obj)) = (label, params.as_object_mut()) {
-                obj.insert(field.into(), Value::String(label));
-            }
-        }
+        refresh_labels(conn, &mut params, redact, &mut labels)?;
         items.push(StoredAlert { id, ts, kind, severity: parse_severity(&severity), params, acknowledged_at });
     }
     let (total, unacknowledged): (i64, i64) =
         conn.query_row("SELECT COUNT(*), COUNT(*) FILTER (WHERE acknowledged_at IS NULL) FROM alerts", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(Page { items, total: if open { unacknowledged } else { total }, unacknowledged })
+}
+
+pub(crate) fn refresh_labels(conn: &Connection, params: &mut Value, redact: bool, labels: &mut HashMap<i64, Option<String>>) -> Result<()> {
+    let scope = params.get("scope").and_then(Value::as_str).unwrap_or("");
+    let scope_value = params.get("scope_value").and_then(Value::as_str).map(str::to_string);
+    let budget_project = (scope == "project").then(|| scope_value.as_deref().and_then(|v| v.parse::<i64>().ok())).flatten();
+    if scope == "client" {
+        if let (Some(client), Some(obj)) = (scope_value, params.as_object_mut()) {
+            let label = if redact { crate::detect::client_alias(conn, &client)? } else { client };
+            obj.insert("scope_value".into(), Value::String(label.clone()));
+            obj.insert("scope_label".into(), Value::String(label));
+        }
+    }
+    for (field, pid) in [("project", params.get("project_id").and_then(Value::as_i64)), ("scope_label", budget_project)] {
+        let Some(pid) = pid else { continue };
+        let label = match labels.get(&pid) {
+            Some(l) => l.clone(),
+            None => {
+                let l = crate::detect::project_label(conn, pid, redact)?;
+                labels.insert(pid, l.clone());
+                l
+            }
+        };
+        if let (Some(label), Some(obj)) = (label, params.as_object_mut()) {
+            obj.insert(field.into(), Value::String(label));
+        }
+    }
+    Ok(())
 }
 
 /// Acknowledges one alert, or every open one with `None`. Returns how many changed.

@@ -45,37 +45,14 @@
     return () => clearTimeout(id);
   });
 
-  /** The light token values, copied from the :root rule so print can use them under the dark theme too. */
-  function lightTokens(): string {
-    const out: string[] = [];
-    for (const sheet of Array.from(document.styleSheets)) {
-      let rules: CSSRuleList;
-      try {
-        rules = sheet.cssRules;
-      } catch {
-        continue;
-      }
-      for (const r of Array.from(rules)) {
-        if (!(r instanceof CSSStyleRule) || r.selectorText !== ':root') continue;
-        for (const p of Array.from(r.style)) if (p.startsWith('--')) out.push(`${p}: ${r.style.getPropertyValue(p).trim()}`);
-      }
-    }
-    return out.join('; ');
-  }
-
-  /** Prints in the light palette with a dated header, whatever the screen theme. */
+  /** Keeps the dated print header current; the light print palette comes from tokens.css. */
   $effect(() => {
-    const style = document.createElement('style');
-    style.dataset.kanjoPrint = '';
-    style.textContent = `@media print { :root[data-theme='dark'] { ${lightTokens()}; color-scheme: light; } }`;
-    document.head.appendChild(style);
     const stamp = () => stampPrint();
     const timer = setInterval(stamp, 60_000);
     window.addEventListener('beforeprint', stamp);
     return () => {
       clearInterval(timer);
       window.removeEventListener('beforeprint', stamp);
-      style.remove();
     };
   });
 

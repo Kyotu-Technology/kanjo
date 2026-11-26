@@ -26,6 +26,10 @@ pub fn update_project(store: &Store, ctx: &Ctx, id: i64, patch: &ProjectPatch) -
         Some(c) => Some(Some(c.to_string())),
         None => None,
     };
+    let client = match client {
+        Some(Some(c)) => Some(Some(Env::load(store)?.real_client(&c))),
+        other => other,
+    };
     store.write(|tx| {
         let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM projects WHERE id = ?1)", [id], |r| r.get(0))?;
         if !exists {
@@ -47,8 +51,10 @@ fn load(c: &Connection, ctx: &Ctx, env: &Env, only: Option<i64>) -> Result<Vec<P
     let src = Src::new(c)?;
     let f = Filter { project: only, ..Filter::default() };
     let from = ctx.day_start(ctx.now) - (REPORT_DAYS - 1) * DAY_MS;
-    let recent: HashMap<i64, Usage> =
-        src.fetch(from, ctx.now, &f, Keys { project: true, ..Keys::NONE })?.into_iter().map(|r| (r.project, r.usage)).collect();
+    let mut recent: HashMap<i64, Usage> = HashMap::new();
+    for r in src.fetch(from, ctx.now, &f, Keys { project: true, ..Keys::NONE })? {
+        *recent.entry(r.project).or_default() += r.usage;
+    }
     let mut stmt = c.prepare(&format!(
         "SELECT h.project_id, {} FROM usage_hourly h WHERE ?1 IS NULL OR h.project_id = ?1 GROUP BY 1",
         crate::common::USAGE_HOURLY_COLS
@@ -56,7 +62,7 @@ fn load(c: &Connection, ctx: &Ctx, env: &Env, only: Option<i64>) -> Result<Vec<P
     let total: HashMap<i64, Usage> =
         stmt.query_map([only], |r| Ok((r.get(0)?, crate::common::usage_at(r, 1)?)))?.collect::<rusqlite::Result<_>>()?;
     let mut stmt = c.prepare(
-        "SELECT p.id, p.client, p.first_seen, p.last_seen, (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id)
+        "SELECT p.id, p.first_seen, p.last_seen, (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id)
          FROM projects p WHERE ?1 IS NULL OR p.id = ?1 ORDER BY p.last_seen DESC, p.id",
     )?;
     let rows = stmt
@@ -66,10 +72,10 @@ fn load(c: &Connection, ctx: &Ctx, env: &Env, only: Option<i64>) -> Result<Vec<P
                 id,
                 name: env.project(id),
                 path: env.project_path(id),
-                client: r.get(1)?,
-                first_seen: r.get(2)?,
-                last_seen: r.get(3)?,
-                sessions: r.get(4)?,
+                client: env.client(id),
+                first_seen: r.get(1)?,
+                last_seen: r.get(2)?,
+                sessions: r.get(3)?,
                 usage_30d: recent.get(&id).copied().unwrap_or_default(),
                 usage_total: total.get(&id).copied().unwrap_or_default(),
             })

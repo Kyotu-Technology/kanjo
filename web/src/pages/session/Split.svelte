@@ -14,12 +14,13 @@
     rows: BreakdownRow[];
     confidence: Confidence;
     label: (r: BreakdownRow) => string;
+    tooltip?: (r: BreakdownRow) => string | undefined;
     color?: (r: BreakdownRow) => string | undefined;
     help?: string;
     nameColumn: string;
     max?: number;
   }
-  let { title, rows, confidence, label, color, help, nameColumn, max = 8 }: Props = $props();
+  let { title, rows, confidence, label, tooltip, color, help, nameColumn, max = 8 }: Props = $props();
   let sortKey = $state('cost');
   let sortDir = $state<'asc' | 'desc'>('desc');
   const columns = $derived<Column<BreakdownRow>[]>([
@@ -40,7 +41,7 @@
       <ShareBars
         label={title}
         shareFormat={(s) => fmt.ratio(s, s > 0 && s < 0.01 ? 1 : 0)}
-        rows={rows.slice(0, max).map((r) => ({ key: r.key, label: label(r), value: fmt.money(r.usage.cost_usd), share: r.share, color: color?.(r) }))}
+        rows={rows.slice(0, max).map((r) => ({ key: r.key, label: label(r), title: tooltip?.(r), value: fmt.money(r.usage.cost_usd), share: r.share, color: color?.(r) }))}
       />
     {:else}
       <EmptyState compact title={t('chart.no_data')} />
@@ -49,7 +50,7 @@
   {#snippet table()}
     <DataTable caption={title} {rows} {columns} rowKey={(r) => r.key} bind:sortKey bind:sortDir dense>
       {#snippet cell(r, col)}
-        {#if col.key === 'name'}{label(r)}{:else if col.key === 'requests'}{fmt.number(r.usage.requests)}{:else if col.key === 'cost'}<Money
+        {#if col.key === 'name'}<span title={tooltip?.(r)}>{label(r)}</span>{:else if col.key === 'requests'}{fmt.number(r.usage.requests)}{:else if col.key === 'cost'}<Money
             usd={r.usage.cost_usd}
             {confidence}
             unpriced={r.usage.unpriced_requests}

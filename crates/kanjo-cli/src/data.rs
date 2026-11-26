@@ -365,15 +365,23 @@ pub fn stop_hint(lang: Lang) -> String {
 
 pub fn restore(app: &mut App, file: &Path) -> CliResult<()> {
     let lang = app.lang;
-    if crate::setup::server_running(&app.config) {
-        return Err(fail(
-            lang.t(
-                "Kanjo is running and using the database, so it cannot be replaced now.",
-                "Kanjo działa i korzysta z bazy, więc nie można jej teraz podmienić.",
-            )
-            .to_string(),
-            stop_hint(lang),
-        ));
+    if crate::setup::server_running(&app.paths) {
+        let message = match kanjo_setup::server_file::live(&app.paths) {
+            Some(rec) => tr!(
+                lang,
+                "Kanjo is running at {} (process {}) and using the database, so it cannot be replaced now.",
+                "Kanjo działa pod adresem {} (proces {}) i korzysta z bazy, więc nie można jej teraz podmienić.",
+                rec.url,
+                rec.pid
+            ),
+            None => lang
+                .t(
+                    "Kanjo is running and using the database, so it cannot be replaced now.",
+                    "Kanjo działa i korzysta z bazy, więc nie można jej teraz podmienić.",
+                )
+                .to_string(),
+        };
+        return Err(fail(message, stop_hint(lang)));
     }
     app.close();
     kanjo_ops::backup::restore(&app.paths, &app.config, file)?;
@@ -499,21 +507,23 @@ pub fn purge(app: &mut App, target: &PurgeTarget, yes: bool) -> CliResult<()> {
     let store = app.store()?;
     let ctx = app.ctx();
     let mut req = PurgeRequest::default();
-    let (what, audit_target) = if let Some(name) = &target.project {
+    let (what, audit_target, deleted) = if let Some(name) = &target.project {
         req.project = Some(reports::project_id(app, &ctx, name)?);
         (
             tr!(lang, "all data of project \"{name}\"", "wszystkie dane projektu \"{name}\""),
             format!("project:{}", req.project.unwrap_or_default()),
+            name.clone(),
         )
     } else if let Some(id) = &target.session {
         req.session = Some(id.clone());
-        (tr!(lang, "session {id}", "sesję {id}"), format!("session:{id}"))
+        (tr!(lang, "session {id}", "sesję {id}"), format!("session:{id}"), id.clone())
     } else if let Some(d) = &target.before {
         req.before = Some(reports::parse_date(lang, &ctx, d)?);
-        (tr!(lang, "all usage data before {d}", "wszystkie dane sprzed {d}"), format!("before:{}", req.before.unwrap_or_default()))
+        let cutoff = req.before.unwrap_or_default();
+        (tr!(lang, "all usage data before {d}", "wszystkie dane sprzed {d}"), format!("before:{cutoff}"), ctx.date_label(cutoff))
     } else {
         req.everything = true;
-        (lang.t("all usage data", "wszystkie dane o użyciu").to_string(), "everything".to_string())
+        (lang.t("all usage data", "wszystkie dane o użyciu").to_string(), "everything".to_string(), "everything".to_string())
     };
     if !yes {
         app.require_terminal(lang.t("add --yes to delete without being asked.", "dodaj --yes, żeby usunąć bez pytania."))?;
@@ -532,7 +542,7 @@ pub fn purge(app: &mut App, target: &PurgeTarget, yes: bool) -> CliResult<()> {
         }
     }
     let report = kanjo_ops::retention::purge(&store, &req)?;
-    app.audit("data.purge", &audit_target, json!({ "request": req, "report": report, "via": "cli" }));
+    app.audit("data.purge", &audit_target, json!({ "request": req, "deleted": deleted, "report": report, "via": "cli" }));
     if app.json {
         return app.print_json(&report);
     }

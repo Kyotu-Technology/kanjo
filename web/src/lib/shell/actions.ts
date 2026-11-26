@@ -1,13 +1,13 @@
-import type { ExportView } from '../api/client';
 import { asApiError } from '../api/errors';
 import { t } from '../i18n/index.svelte';
 import { api, describeError } from '../stores/app.svelte';
 import { toasts } from '../stores/toast.svelte';
+import { buildExport, type PageExport } from './exports.svelte';
 
-/** Downloads an export of a view as CSV and reports the result as a toast. */
-export async function exportView(view: ExportView): Promise<void> {
+/** Downloads the export of a view and reports the result as a toast. */
+export async function runExport(e: PageExport): Promise<void> {
   try {
-    const { blob, filename } = await api().exportView(view, 'csv');
+    const { blob, filename } = await buildExport(e, api());
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -17,8 +17,8 @@ export async function exportView(view: ExportView): Promise<void> {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toasts.push('success', t('palette.exported', { file: filename }));
-  } catch (e) {
-    const err = asApiError(e);
-    toasts.push('error', err.code === 'unknown' ? t('palette.export_failed') : describeError(err));
+  } catch (err) {
+    const x = asApiError(err);
+    toasts.push('error', x.code === 'unknown' ? t('palette.export_failed') : describeError(x));
   }
 }

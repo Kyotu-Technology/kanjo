@@ -11,58 +11,42 @@ use kanjo_core::api::HookInstallRequest;
 use kanjo_core::config::{Config, EncryptionMode};
 use kanjo_core::paths::Paths;
 use kanjo_setup::claude::StatuslineSlot;
+use kanjo_setup::server_file::{self, ServerRecord};
 use kanjo_setup::service::ServiceState;
 use serde_json::json;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub const DEMO_PORT: u16 = 4748;
 
-fn loopback_addr(config: &Config) -> Option<SocketAddr> {
-    let ip: IpAddr = match config.server.bind.trim() {
-        "" | "0.0.0.0" | "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        "::" => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        other => other.trim_start_matches('[').trim_end_matches(']').parse().ok()?,
-    };
-    ip.is_loopback().then(|| SocketAddr::new(ip, config.server.port))
+fn service_running() -> bool {
+    kanjo_setup::service::is_installed() && kanjo_setup::service::status() == ServiceState::Running
 }
 
-/// True when something answers on the configured loopback port, or the background service reports running.
-pub fn server_running(config: &Config) -> bool {
-    let port_open = loopback_addr(config).is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok());
-    port_open || (kanjo_setup::service::is_installed() && kanjo_setup::service::status() == ServiceState::Running)
+/// True when a server uses this data directory (it announced itself in
+/// server.json and is still alive), or the background service reports running.
+pub fn server_running(paths: &Paths) -> bool {
+    server_file::live(paths).is_some() || service_running()
 }
 
-fn wait_for_server(config: &Config, limit: Duration) -> bool {
+/// The server of this data directory, once it accepts connections.
+fn wait_for_server(paths: &Paths, limit: Duration) -> Option<ServerRecord> {
     let start = Instant::now();
-    while start.elapsed() < limit {
-        if loopback_addr(config).is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()) {
-            return true;
+    loop {
+        if let Some(rec) = server_file::answering(paths) {
+            return Some(rec);
+        }
+        if start.elapsed() >= limit {
+            return None;
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    false
 }
 
-#[cfg(feature = "server")]
-fn dashboard_url(paths: &Paths, config: &Config) -> CliResult<String> {
-    Ok(kanjo_server::access_url(paths, config)?)
-}
-
-#[cfg(not(feature = "server"))]
-fn dashboard_url(paths: &Paths, config: &Config) -> CliResult<String> {
-    let scheme = if config.server.tls_cert.is_some() { "https" } else { "http" };
-    let host = match loopback_addr(config) {
-        Some(SocketAddr::V6(a)) => format!("[{}]", a.ip()),
-        Some(SocketAddr::V4(a)) => a.ip().to_string(),
-        None => config.server.bind.clone(),
-    };
-    let base = format!("{scheme}://{host}:{}/", config.server.port);
-    Ok(match config.server.auth {
-        kanjo_core::config::AuthMode::None => base,
-        kanjo_core::config::AuthMode::Token => format!("{base}?token={}", kanjo_ops::token::load_or_create(paths)?),
-    })
+/// A sign-in URL for `rec`: a single-use login code valid for two minutes,
+/// never the access token itself.
+fn sign_in_url(paths: &Paths, rec: &ServerRecord) -> CliResult<String> {
+    Ok(server_file::login_url(paths, rec, kanjo_core::time::now_ms())?)
 }
 
 fn open_browser(lang: Lang, url: &str) {
@@ -78,36 +62,87 @@ fn open_browser(lang: Lang, url: &str) {
     }
 }
 
+/// The failure for a data directory another server already uses.
 #[cfg(feature = "server")]
-fn run_server(lang: Lang, paths: Paths, config: Config, open_browser: bool, demo: bool) -> CliResult<()> {
+fn already_running(lang: Lang, paths: &Paths, rec: &ServerRecord) -> Failure {
+    fail(
+        tr!(
+            lang,
+            "Kanjo is already running for {} at {} (process {}).",
+            "Kanjo już działa dla katalogu {} pod adresem {} (proces {}).",
+            paths.home.display(),
+            rec.url,
+            rec.pid
+        ),
+        lang.t(
+            "open it with \"kanjo open\", or stop it before starting another one.",
+            "otwórz go poleceniem \"kanjo open\" albo zatrzymaj go, zanim uruchomisz kolejny.",
+        )
+        .into(),
+    )
+}
+
+#[cfg(feature = "server")]
+fn run_server(lang: Lang, paths: Paths, config: Config, open_browser: bool, demo: bool, demo_days: Option<u32>) -> CliResult<()> {
+    if let Err(e) = kanjo_server::check_bind(&config) {
+        return Err(fail(
+            tr!(lang, "Kanjo cannot listen as configured ({e}).", "Kanjo nie może nasłuchiwać tak, jak skonfigurowano ({e})."),
+            lang.t(
+                "to reach the dashboard from other machines, set server.tls_cert and server.tls_key (and keep auth = \"token\") in config.toml; otherwise leave --bind out so it stays on 127.0.0.1.",
+                "żeby pulpit był dostępny z innych komputerów, ustaw server.tls_cert i server.tls_key (i zostaw auth = \"token\") w config.toml; w przeciwnym razie pomiń --bind, a pulpit zostanie na 127.0.0.1.",
+            )
+            .into(),
+        ));
+    }
+    if let Some(rec) = server_file::live(&paths) {
+        return Err(already_running(lang, &paths, &rec));
+    }
+    if let Some(f) = crate::app::plain_database(lang, &paths, &config) {
+        return Err(f);
+    }
     crate::app::init_logging(tracing_subscriber::filter::LevelFilter::INFO);
     let port = config.server.port;
-    out(&tr!(
-        lang,
-        "Kanjo dashboard on http://{}:{port}/ (Ctrl-C stops it).",
-        "Pulpit Kanjo pod adresem http://{}:{port}/ (Ctrl-C zatrzymuje).",
-        config.server.bind
-    ));
-    kanjo_server::run(kanjo_server::ServeOptions { paths, config, open_browser, demo }).map_err(|e| {
-        let text = e.to_string().to_lowercase();
-        if text.contains("in use") || text.contains("address") {
-            fail(
-                tr!(lang, "port {port} is already taken ({e}).", "port {port} jest już zajęty ({e})."),
-                tr!(
+    let interactive = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let home = paths.home.clone();
+    let ready = |server: &kanjo_server::Server| {
+        out(&tr!(lang, "Kanjo dashboard on {} (Ctrl-C stops it).", "Pulpit Kanjo pod adresem {} (Ctrl-C zatrzymuje).", server.url()));
+        if demo || (interactive && !open_browser) {
+            let link = server.login_url();
+            if link != server.url() {
+                out(&tr!(
                     lang,
-                    "Kanjo may already be running (\"kanjo open\" shows it). Otherwise choose another port with --port N.",
-                    "Kanjo może już działać (\"kanjo open\" go pokaże). W przeciwnym razie wybierz inny port opcją --port N."
-                ),
-            )
-        } else {
-            Failure::Core(e)
+                    "Sign in with this link (it works once, within two minutes): {link}",
+                    "Zaloguj się tym linkiem (działa raz, przez dwie minuty): {link}"
+                ));
+                out(&tr!(
+                    lang,
+                    "Later, \"kanjo --home {} open\" signs you in again.",
+                    "Później \"kanjo --home {} open\" zaloguje Cię ponownie.",
+                    home.display()
+                ));
+            }
         }
+    };
+    let opts = kanjo_server::ServeOptions { paths: paths.clone(), config, open_browser, demo, demo_days };
+    kanjo_server::run_with(opts, ready).map_err(|e| match &e {
+        kanjo_core::Error::Io(io) if io.kind() == std::io::ErrorKind::AddrInUse => fail(
+            tr!(lang, "port {port} is already taken ({e}).", "port {port} jest już zajęty ({e})."),
+            tr!(
+                lang,
+                "another program holds it; choose another port with --port N or set server.port in config.toml.",
+                "zajmuje go inny program; wybierz inny port opcją --port N albo ustaw server.port w config.toml."
+            ),
+        ),
+        _ => match server_file::live(&paths) {
+            Some(rec) => already_running(lang, &paths, &rec),
+            None => Failure::Core(e),
+        },
     })
 }
 
 #[cfg(not(feature = "server"))]
-fn run_server(lang: Lang, paths: Paths, config: Config, open_browser: bool, demo: bool) -> CliResult<()> {
-    let _ = (paths, config, open_browser, demo);
+fn run_server(lang: Lang, paths: Paths, config: Config, open_browser: bool, demo: bool, demo_days: Option<u32>) -> CliResult<()> {
+    let _ = (paths, config, open_browser, demo, demo_days);
     Err(fail(
         lang.t("this build of Kanjo has no dashboard server.", "ta wersja Kanjo nie ma wbudowanego serwera pulpitu.").into(),
         lang.t(
@@ -309,7 +344,7 @@ pub fn up(app: &mut App, yes: bool, no_open: bool, no_hooks: bool, no_service: b
     }
     app.close();
     if no_service {
-        return run_server(lang, app.paths.clone(), app.config.clone(), !no_open, false);
+        return run_server(lang, app.paths.clone(), app.config.clone(), !no_open, false, None);
     }
     finish_start(app, no_open)
 }
@@ -335,18 +370,17 @@ fn install_service(app: &mut App, exe: &Path) -> CliResult<()> {
 
 fn finish_start(app: &mut App, no_open: bool) -> CliResult<()> {
     let lang = app.lang;
-    if !wait_for_server(&app.config, Duration::from_secs(15)) {
+    let Some(rec) = wait_for_server(&app.paths, Duration::from_secs(15)) else {
         out(lang.t(
             "The dashboard does not answer yet. Check with \"kanjo service status\" in a moment, then run \"kanjo open\".",
             "Pulpit jeszcze nie odpowiada. Za chwilę sprawdź \"kanjo service status\", a potem uruchom \"kanjo open\".",
         ));
         return Ok(());
-    }
-    let url = dashboard_url(&app.paths, &app.config)?;
+    };
     if no_open {
-        out(&tr!(lang, "Kanjo is running: {url}", "Kanjo działa: {url}"));
+        out(&tr!(lang, "Kanjo is running: {} (\"kanjo open\" signs you in).", "Kanjo działa: {} (\"kanjo open\" Cię zaloguje).", rec.url));
     } else {
-        open_browser(lang, &url);
+        open_browser(lang, &sign_in_url(&app.paths, &rec)?);
     }
     Ok(())
 }
@@ -361,15 +395,35 @@ pub fn serve(app: &mut App, port: Option<u16>, bind: Option<String>, no_open: bo
     }
     app.close();
     let interactive = std::io::IsTerminal::is_terminal(&std::io::stdout());
-    run_server(app.lang, app.paths.clone(), config, !no_open && interactive, false)
+    run_server(app.lang, app.paths.clone(), config, !no_open && interactive, false, None)
 }
 
+/// Why `paths` belongs to a real installation, which a demo must not use.
+fn real_installation(paths: &Paths) -> Option<&'static str> {
+    let default = kanjo_core::paths::UserDirs::current().map(|d| d.kanjo_data_dir());
+    if default.as_deref() == Some(paths.home.as_path()) {
+        return Some("default");
+    }
+    if paths.key_file().exists() || paths.spool_dir().exists() || paths.backups_dir().exists() {
+        return Some("files");
+    }
+    if paths.db().exists() && !kanjo_setup::doctor::is_plaintext_db(&paths.db()) {
+        return Some("encrypted");
+    }
+    None
+}
+
+/// `kanjo demo`. The live demo uses `--home` when given and a temporary
+/// directory otherwise; `KANJO_HOME` (usually the real data directory) is only
+/// honoured by the hidden `--seed-only`. Either way a directory that holds a
+/// real installation is refused.
 pub fn demo(g: &Global, port: Option<u16>, no_open: bool, days: Option<u32>, seed_only: bool, seed: u64) -> CliResult<()> {
     let lang = g.lang.unwrap_or_else(Lang::from_env);
-    let explicit = g.home.clone().or_else(|| std::env::var_os("KANJO_HOME").filter(|v| !v.is_empty()).map(PathBuf::from));
+    let from_env = || std::env::var_os("KANJO_HOME").filter(|v| !v.is_empty()).map(PathBuf::from);
+    let explicit = g.home.clone().or_else(|| if seed_only { from_env() } else { None });
     let mut temp = None;
     let home = match explicit {
-        Some(h) => h,
+        Some(h) => std::path::absolute(&h).unwrap_or(h),
         None => {
             let dir = tempfile::Builder::new().prefix("kanjo-demo-").tempdir()?;
             let path = dir.path().to_path_buf();
@@ -383,6 +437,32 @@ pub fn demo(g: &Global, port: Option<u16>, no_open: bool, days: Option<u32>, see
         .or_else(|| std::env::var_os("KANJO_CLAUDE_DIR").filter(|v| !v.is_empty()).map(PathBuf::from))
         .unwrap_or_else(|| home.join("claude-demo"));
     let paths = Paths::at(&home, &claude);
+    if temp.is_none() {
+        if let Some(why) = real_installation(&paths) {
+            let message = match why {
+                "default" => tr!(
+                    lang,
+                    "{} is Kanjo's own data directory, so the demo will not use it.",
+                    "{} to własny katalog danych Kanjo, więc demo z niego nie skorzysta.",
+                    home.display()
+                ),
+                _ => tr!(
+                    lang,
+                    "{} holds a real Kanjo installation, so the demo will not use it.",
+                    "w katalogu {} jest prawdziwa instalacja Kanjo, więc demo z niego nie skorzysta.",
+                    home.display()
+                ),
+            };
+            return Err(fail(
+                message,
+                lang.t(
+                    "leave --home out (and KANJO_HOME unset for --seed-only) so the demo uses a temporary directory, or point it at an empty one.",
+                    "pomiń --home (a przy --seed-only nie ustawiaj KANJO_HOME), żeby demo użyło katalogu tymczasowego, albo wskaż pusty katalog.",
+                )
+                .into(),
+            ));
+        }
+    }
     let mut config = Config::load(&paths)?;
     config.storage.encryption = EncryptionMode::Off;
     match port {
@@ -407,12 +487,7 @@ pub fn demo(g: &Global, port: Option<u16>, no_open: bool, days: Option<u32>, see
         out(&tr!(lang, "Demo data written to {}.", "Dane demonstracyjne zapisano w {}.", home.display()));
         return Ok(());
     }
-    if days.is_some_and(|d| d != 30) {
-        out(lang.t(
-            "Note: the dashboard server always invents 30 days of history; --days only applies with --seed-only.",
-            "Uwaga: serwer pulpitu zawsze generuje 30 dni historii; --days działa tylko z --seed-only.",
-        ));
-    }
+    config.save(&paths)?;
     if temp.is_some() {
         out(&tr!(
             lang,
@@ -421,14 +496,15 @@ pub fn demo(g: &Global, port: Option<u16>, no_open: bool, days: Option<u32>, see
             home.display()
         ));
     }
-    let result = run_server(lang, paths, config, !no_open, true);
+    let result = run_server(lang, paths, config, !no_open, true, days);
     drop(temp);
     result
 }
 
 pub fn open_dashboard(app: &mut App) -> CliResult<()> {
     let lang = app.lang;
-    if !server_running(&app.config) {
+    let limit = if service_running() { Duration::from_secs(5) } else { Duration::ZERO };
+    let Some(rec) = wait_for_server(&app.paths, limit) else {
         return Err(fail(
             lang.t("the dashboard is not running.", "pulpit nie jest uruchomiony.").into(),
             lang.t(
@@ -437,8 +513,8 @@ pub fn open_dashboard(app: &mut App) -> CliResult<()> {
             )
             .into(),
         ));
-    }
-    let url = dashboard_url(&app.paths, &app.config)?;
+    };
+    let url = sign_in_url(&app.paths, &rec)?;
     if app.json {
         return app.print_json(&json!({ "url": url }));
     }
@@ -476,9 +552,12 @@ pub fn service(app: &mut App, action: &ServiceAction) -> CliResult<()> {
         }
         ServiceAction::Status => {
             let state = kanjo_setup::service::status();
-            let answering = server_running(&app.config);
+            let rec = server_file::answering(&app.paths);
+            let answering = rec.is_some();
+            let port = rec.as_ref().map_or(app.config.server.port, |r| r.addr.port());
             if app.json {
-                return app.print_json(&json!({ "service": state, "dashboard_answering": answering, "port": app.config.server.port }));
+                return app
+                    .print_json(&json!({ "service": state, "dashboard_answering": answering, "port": port, "url": rec.map(|r| r.url) }));
             }
             let text = match state {
                 ServiceState::Running => lang.t("The background service is running.", "Usługa w tle działa."),
@@ -498,9 +577,9 @@ pub fn service(app: &mut App, action: &ServiceAction) -> CliResult<()> {
             };
             out(text);
             out(&if answering {
-                tr!(lang, "The dashboard answers on port {}.", "Pulpit odpowiada na porcie {}.", app.config.server.port)
+                tr!(lang, "The dashboard answers on port {port}.", "Pulpit odpowiada na porcie {port}.")
             } else {
-                tr!(lang, "Nothing answers on port {}.", "Na porcie {} nic nie odpowiada.", app.config.server.port)
+                tr!(lang, "No dashboard is running for {}.", "Dla katalogu {} nie działa żaden pulpit.", app.paths.home.display())
             });
             Ok(())
         }
@@ -559,6 +638,18 @@ pub fn uninstall(app: &mut App, purge_data: bool, yes: bool, no_service: bool) -
     }
     if purge_data {
         app.close();
+        if let Some(rec) = server_file::live(&app.paths) {
+            return Err(fail(
+                tr!(
+                    lang,
+                    "Kanjo is still running at {} (process {}), so its data cannot be deleted now.",
+                    "Kanjo nadal działa pod adresem {} (proces {}), więc jego danych nie można teraz usunąć.",
+                    rec.url,
+                    rec.pid
+                ),
+                crate::data::stop_hint(lang),
+            ));
+        }
         if !app.paths.home.exists() {
             out(lang.t("There was no data directory to delete.", "Nie było katalogu danych do usunięcia."));
         } else if !safe_to_delete(&app.paths) {

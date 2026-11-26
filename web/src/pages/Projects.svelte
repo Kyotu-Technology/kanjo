@@ -10,6 +10,8 @@
   import { href } from '../lib/router';
   import { api, app, cache, describeError } from '../lib/stores/app.svelte';
   import { toasts } from '../lib/stores/toast.svelte';
+  import { runExport } from '../lib/shell/actions';
+  import { usePageExport, type PageExport } from '../lib/shell/exports.svelte';
   import Answer from '../lib/ui/Answer.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
@@ -81,17 +83,23 @@
   const saveClient = (p: Project) => (client: string) =>
     patch(p, { name: null, client }, client ? t('pages.projects.client_saved', { name: p.name, client }) : t('pages.projects.client_cleared', { name: p.name }));
   const saveName = (name: string) => (renaming ? patch(renaming, { name, client: null }, t('pages.projects.renamed', { name })) : Promise.resolve(false));
+  const exp: PageExport = { kind: 'json', name: 'projects', data: async () => projects.data ?? api().projects() };
+  usePageExport(() => exp);
 </script>
 
 {#snippet badge()}<ConfidenceBadge confidence="lower_bound" compact />{/snippet}
 {#snippet clientHelp()}<InlineHelp text={t('pages.projects.client_help')} label={t('pages.projects.client')} />{/snippet}
 
-<PageHeader title={t('pages.projects.title')} lede={t('pages.projects.lede')} />
+<PageHeader title={t('pages.projects.title')} lede={t('pages.projects.lede')}>
+  {#snippet meta()}
+    <Button size="sm" icon="download" onclick={() => runExport(exp)}>{t('common.export_json')}</Button>
+  {/snippet}
+</PageHeader>
 
 {#if redacted}
   <div class="banner">
     <Banner icon="lock" title={t('pages.projects.redacted_title')} body={t('pages.projects.redacted_body')}>
-      {#snippet action()}<Button href={href('/settings')} size="sm">{t('pages.projects.redacted_action')}</Button>{/snippet}
+      {#snippet action()}<Button href={href('/settings', { section: 'privacy' })} size="sm">{t('pages.projects.redacted_action')}</Button>{/snippet}
     </Banner>
   </div>
 {/if}
@@ -223,7 +231,7 @@
     font-size: var(--fs-xs);
   }
   .path {
-    max-width: 30ch;
+    max-width: 16ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

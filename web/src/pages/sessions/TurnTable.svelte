@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Turn } from '../../lib/api/contract';
-  import { modelColor, modelLabel } from '../../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t, tk } from '../../lib/i18n/index.svelte';
   import { href } from '../../lib/router';
   import { navigate } from '../../lib/stores/router.svelte';
@@ -47,7 +47,7 @@
       <span class="sub">{x.agent_type ?? t('common.main')}</span>
     {:else if col.key === 'agent'}{x.agent_type ?? t('common.main')}
     {:else if col.key === 'model'}
-      <span class="model"><span class="key" style="background:{modelColor(x.model)}"></span>{modelLabel(x.model)}</span>
+      <span class="model" title={modelTitle(x.model)}><span class="key" style="background:{modelColor(x.model)}"></span>{modelLabel(x.model)}</span>
     {:else if col.key === 'tools'}
       <span class="tools">{#each [...new Set(x.tools)].slice(0, 3) as tool (tool)}<span class="tool">{tool}</span>{/each}</span>
     {:else if col.key === 'read'}{fmt.compact(read(x))}

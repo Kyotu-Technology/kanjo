@@ -182,7 +182,9 @@ export async function bootstrap(): Promise<void> {
   void refreshUnread();
   client
     .system()
-    .then((s) => (app.ingest = s.ingest))
+    .then((s) => {
+      app.ingest = s.ingest;
+    })
     .catch(() => undefined);
   startLive();
 }

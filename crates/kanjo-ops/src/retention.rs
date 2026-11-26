@@ -2,20 +2,41 @@
 //!
 //! Both functions return what they removed; the caller writes the audit entry.
 //! Neither touches `settings`, `projects`, `budgets`, `price_tables` or
-//! `ingest_files`: the ingest cursors stay where they are, so purged history
-//! is not imported again.
+//! `ingest_files`. What was deleted is recorded as purge marks
+//! (`store::write::mark_purged`), which the write path consults: a rescan, a
+//! transcript read again from the start or a restart cannot bring purged
+//! history back, and requests that retention removed after their usage was
+//! counted into the aggregates are not counted a second time.
 
 use kanjo_core::api::{PurgeReport, PurgeRequest};
 use kanjo_core::settings::RetentionSettings;
+use kanjo_core::store::write::{self, PurgeScope};
 use kanjo_core::time::{hour_floor, DAY_MS};
 use kanjo_core::{Error, Result, Store};
-use rusqlite::{params, params_from_iter, Connection, ToSql};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
 
 /// Deletes every data class older than its configured age (0 keeps it).
 /// Removing request rows (their tool rows cascade) leaves session totals and
 /// the hourly aggregate as they are; the request cutoff is floored to the hour.
 pub fn apply(store: &Store, r: &RetentionSettings, now: i64) -> Result<PurgeReport> {
-    store.write(|tx| apply_tx(tx, r, now))
+    let rep = store.write(|tx| apply_tx(tx, r, now))?;
+    if rep.requests + rep.sessions + rep.aggregates + rep.limit_samples + rep.alerts + rep.audit_entries + rep.quarantine > 0 {
+        checkpoint(store);
+    }
+    Ok(rep)
+}
+
+fn checkpoint(store: &Store) {
+    if let Err(e) = store.checkpoint() {
+        tracing::warn!(error = %e, "the write-ahead log could not be truncated after a deletion");
+    }
+}
+
+/// Rebuilds the database file so the space of deleted rows is returned to the
+/// file system. Deleted content is already overwritten (`secure_delete`); this
+/// only shrinks the file. Can take a while on a large database.
+pub fn compact(store: &Store) -> Result<()> {
+    store.compact()
 }
 
 fn cutoff(now: i64, days: u32) -> Option<i64> {
@@ -25,7 +46,13 @@ fn cutoff(now: i64, days: u32) -> Option<i64> {
 fn apply_tx(tx: &Connection, r: &RetentionSettings, now: i64) -> Result<PurgeReport> {
     let mut rep = PurgeReport::default();
     if let Some(c) = cutoff(now, r.requests_days).map(hour_floor) {
+        // The floor covers only what is deleted now, so history that was never
+        // imported (a first start, a transcript copied in later) still counts once.
+        let newest: Option<i64> = tx.query_row("SELECT MAX(ts) FROM requests WHERE ts < ?1", [c], |r| r.get(0))?;
         rep.requests = tx.execute("DELETE FROM requests WHERE ts < ?1", [c])? as i64;
+        if let Some(ts) = newest {
+            write::mark_purged(tx, PurgeScope::All, ts + 1)?;
+        }
         for table in ["session_events", "cache_misses", "config_changes", "session_status"] {
             tx.execute(&format!("DELETE FROM {table} WHERE ts < ?1"), [c])?;
         }
@@ -57,11 +84,41 @@ fn apply_tx(tx: &Connection, r: &RetentionSettings, now: i64) -> Result<PurgeRep
 /// timestamp, or everything. Removes request rows, session rows, the hourly
 /// aggregates of that scope, hook events, statusline snapshots, cache misses
 /// and, where they can be attributed, alerts. Settings, projects, budgets and
-/// the audit log survive.
+/// the audit log survive. The deleted data never comes back: records of the
+/// scope dated up to now (for `before`: before that time) are not stored
+/// again; later activity of a purged session or project is.
 pub fn purge(store: &Store, req: &PurgeRequest) -> Result<PurgeReport> {
-    store.write(|tx| purge_tx(tx, req))
+    purge_at(store, req, kanjo_core::time::now_ms())
 }
 
+/// `purge` at an explicit time, the moment the purge marks are set to.
+pub fn purge_at(store: &Store, req: &PurgeRequest, now: i64) -> Result<PurgeReport> {
+    let rep = store.write(|tx| {
+        let rep = purge_tx(tx, req)?;
+        mark(tx, req, now)?;
+        Ok(rep)
+    })?;
+    checkpoint(store);
+    Ok(rep)
+}
+
+fn mark(tx: &Connection, req: &PurgeRequest, now: i64) -> Result<()> {
+    let until = now + 1;
+    if req.everything {
+        write::mark_purged(tx, PurgeScope::All, until)
+    } else if let Some(id) = &req.session {
+        write::mark_purged(tx, PurgeScope::Session(id), until)
+    } else if let Some(p) = req.project {
+        write::mark_purged(tx, PurgeScope::Project(p), until)
+    } else if let Some(before) = req.before {
+        // A date in the future must not keep out activity that has not happened yet.
+        write::mark_purged(tx, PurgeScope::All, before.min(until))
+    } else {
+        Ok(())
+    }
+}
+
+/// Deletes without leaving purge marks (for the demo, which refills the database).
 pub(crate) fn purge_tx(tx: &Connection, req: &PurgeRequest) -> Result<PurgeReport> {
     let selectors = req.project.is_some() as u8 + req.session.is_some() as u8 + req.before.is_some() as u8 + req.everything as u8;
     if selectors != 1 {
@@ -101,7 +158,8 @@ const ALERT_SESSION: &str = "CASE WHEN json_valid(params) THEN json_extract(para
 const ALERT_PROJECT: &str = "CASE WHEN json_valid(params) THEN CAST(json_extract(params, '$.project_id') AS INTEGER) END";
 
 fn purge_session(tx: &Connection, id: &str) -> Result<PurgeReport> {
-    let aggregates = subtract_hourly(tx, "session_id = ?1", &[&id])?;
+    let mut aggregates = subtract_hourly(tx, "session_id = ?1", &[&id])?;
+    aggregates += remove_retained_share(tx, id)?;
     let requests = tx.execute("DELETE FROM requests WHERE session_id = ?1", [id])? as i64;
     let sessions = tx.execute("DELETE FROM sessions WHERE id = ?1", [id])? as i64;
     for table in ["session_events", "session_status", "cache_misses"] {
@@ -183,6 +241,34 @@ fn subtract_hourly(tx: &Connection, filter: &str, p: &[&dyn ToSql]) -> Result<i6
         removed += tx.execute("DELETE FROM usage_hourly WHERE hour = ?1 AND requests <= 0", [hour])? as i64;
     }
     Ok(removed)
+}
+
+/// Takes out of `usage_hourly` the share of the session's requests that
+/// retention already deleted (the session totals still count them, the
+/// request rows are gone). The hourly rows carry no session, so the share is
+/// removed only when it can be attributed exactly: the project's hourly rows
+/// over the session's hours hold no request but these. Otherwise it stays and
+/// is logged.
+fn remove_retained_share(tx: &Connection, id: &str) -> Result<i64> {
+    let row: Option<(i64, i64, i64, i64)> = tx
+        .query_row(
+            "SELECT requests - (SELECT count(*) FROM requests WHERE session_id = sessions.id), project_id, started_at, last_at
+             FROM sessions WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((missing, project, start, last)) = row.filter(|r| r.0 > 0) else { return Ok(0) };
+    let range = params![project, hour_floor(start), hour_floor(last)];
+    let held: i64 =
+        tx.query_row("SELECT COALESCE(SUM(requests), 0) FROM usage_hourly WHERE project_id = ?1 AND hour BETWEEN ?2 AND ?3", range, |r| {
+            r.get(0)
+        })?;
+    if held != missing {
+        tracing::warn!(missing, held, "the hourly share of requests removed by retention cannot be attributed to the purged session");
+        return Ok(0);
+    }
+    Ok(tx.execute("DELETE FROM usage_hourly WHERE project_id = ?1 AND hour BETWEEN ?2 AND ?3", range)? as i64)
 }
 
 /// For sessions that continue past `before`, takes the requests before it out
@@ -396,6 +482,114 @@ mod tests {
         }
         assert_eq!(count(&t, "SELECT count(*) FROM audit_log"), 2);
         untouched(&t);
+    }
+
+    fn reinsert_all(t: &TestStore, pa: i64, pb: i64) -> Vec<kanjo_core::model::InsertOutcome> {
+        let mut out = Vec::new();
+        let mut n = 0;
+        for (session, project, start, count) in
+            [("s1", pa, NOW - 30 * DAY_MS, 4), ("s2", pa, NOW - 10 * DAY_MS - 2 * HOUR_MS, 6), ("s3", pb, NOW - HOUR_MS * 5, 3)]
+        {
+            for i in 0..count {
+                n += 1;
+                let mut r = testkit::request(&format!("m{n}"), session, start + i * 30 * 60_000, "claude-opus-5-5", 100, 50 + i);
+                r.project_id = project;
+                r.is_sidechain = i % 3 == 2;
+                r.agent_type = r.is_sidechain.then(|| "Explore".to_string());
+                out.push(t.store.write(|tx| write::insert_request(tx, &r, PriceTable::embedded())).unwrap());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn requests_removed_by_retention_are_not_counted_again() {
+        use kanjo_core::model::InsertOutcome::{Duplicate, Purged};
+        let (t, pa, pb) = fixture();
+        let before = totals(&t);
+        let keep = RetentionSettings { requests_days: 15, aggregates_days: 0, ..Default::default() };
+        assert_eq!(apply(&t.store, &keep, NOW).unwrap().requests, 4);
+        let again = reinsert_all(&t, pa, pb);
+        assert_eq!(again.iter().filter(|o| **o == Purged).count(), 4);
+        assert_eq!(again.iter().filter(|o| **o == Duplicate).count(), 9);
+        assert_eq!(totals(&t), before, "a rescan after retention changes no total");
+        assert_eq!(apply(&t.store, &keep, NOW).unwrap().requests, 0);
+    }
+
+    #[test]
+    fn retention_before_the_first_import_keeps_nothing_out() {
+        let t = TestStore::new();
+        apply(&t.store, &RetentionSettings::default(), NOW).unwrap();
+        let p = t.project("p");
+        let mut r = testkit::request("old", "s", NOW - 500 * DAY_MS, "claude-opus-5-5", 1, 1);
+        r.project_id = p;
+        assert_eq!(
+            t.store.write(|tx| write::insert_request(tx, &r, PriceTable::embedded())).unwrap(),
+            kanjo_core::model::InsertOutcome::Inserted
+        );
+    }
+
+    #[test]
+    fn purges_leave_marks_at_the_purge_moment() {
+        let (t, pa, _) = fixture();
+        purge_at(&t.store, &PurgeRequest { session: Some("s3".into()), ..Default::default() }, NOW).unwrap();
+        purge_at(&t.store, &PurgeRequest { project: Some(pa), ..Default::default() }, NOW + 5).unwrap();
+        purge_at(&t.store, &PurgeRequest { before: Some(NOW - DAY_MS), ..Default::default() }, NOW + 9).unwrap();
+        let marks: String = t
+            .store
+            .read(|c| {
+                Ok(c.query_row(
+                    "SELECT group_concat(scope || ':' || target || ':' || (until - ?1), ',') FROM (SELECT * FROM purge_marks ORDER BY scope, target)",
+                    [NOW],
+                    |r| r.get(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(marks, format!("all::{},project:{pa}:6,session:s3:1", -DAY_MS));
+        purge_at(&t.store, &PurgeRequest { before: Some(NOW + 30 * DAY_MS), ..Default::default() }, NOW + 15).unwrap();
+        assert_eq!(count(&t, "SELECT until FROM purge_marks WHERE scope = 'all'"), NOW + 16, "a future date is cut to the purge moment");
+        purge_at(&t.store, &PurgeRequest { everything: true, ..Default::default() }, NOW + 20).unwrap();
+        assert_eq!(count(&t, "SELECT until FROM purge_marks WHERE scope = 'all'"), NOW + 21);
+    }
+
+    #[test]
+    fn purging_a_session_removes_the_share_retention_left_in_the_aggregates() {
+        let (t, _, pb) = fixture();
+        let alone = "SELECT COALESCE(SUM(requests), 0) FROM usage_hourly WHERE project_id = ";
+        let base = hour_floor(NOW - 40 * DAY_MS);
+        for i in 0..4 {
+            let mut r = testkit::request(&format!("g{i}"), "s4", base + i * 40 * 60_000, "claude-opus-5-5", 10, 10);
+            r.project_id = t.project("gamma");
+            t.insert(&r);
+        }
+        let gamma = t.project("gamma");
+        apply(&t.store, &RetentionSettings { requests_days: 35, ..Default::default() }, base + 35 * DAY_MS + HOUR_MS).unwrap();
+        assert_eq!(count(&t, "SELECT count(*) FROM requests WHERE session_id = 's4'"), 2);
+        assert_eq!(count(&t, &format!("{alone}{gamma}")), 4);
+        let rep = purge(&t.store, &PurgeRequest { session: Some("s4".into()), ..Default::default() }).unwrap();
+        assert_eq!(count(&t, &format!("{alone}{gamma}")), 0, "nothing of the purged session is left");
+        assert!(rep.aggregates >= 1);
+        assert_eq!(count(&t, &format!("{alone}{pb}")), 3, "other projects untouched");
+    }
+
+    #[test]
+    fn purged_text_is_gone_from_the_database_files() {
+        let t = TestStore::new();
+        let p = t.project("secretclient");
+        for i in 0..20 {
+            let mut r = testkit::request(&format!("m{i}"), "s1", NOW - i * 60_000, "claude-opus-5-5", 10, 5);
+            r.project_id = p;
+            r.git_branch = Some("feature/invented-secret-branch".into());
+            t.insert(&r);
+        }
+        t.store.checkpoint().unwrap();
+        purge(&t.store, &PurgeRequest { project: Some(p), ..Default::default() }).unwrap();
+        let needle = b"invented-secret-branch";
+        for f in ["kanjo.db", "kanjo.db-wal"] {
+            let bytes = std::fs::read(t.dir.path().join(f)).unwrap_or_default();
+            assert!(!bytes.windows(needle.len()).any(|w| w == needle), "purged text still in {f}");
+        }
+        compact(&t.store).unwrap();
     }
 
     #[test]

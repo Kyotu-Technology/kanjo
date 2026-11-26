@@ -48,7 +48,7 @@
           <ConfidenceBadge confidence="estimate" compact />
         </p>
         <p>
-          {#if read.length > 1}{t('pages.limits.per_pct_box.range', { low: fmt.money(low), high: fmt.money(high) })}{/if}
+          {#if read.length > 1}{fmt.money(low) === fmt.money(high) ? t('pages.limits.per_pct_box.range_flat', { value: fmt.money(low) }) : t('pages.limits.per_pct_box.range', { low: fmt.money(low), high: fmt.money(high) })}{/if}
           {t('pages.limits.per_pct_box.explain')}
           {#if read.length < weeks.length}{t('pages.limits.per_pct_box.missing')}{/if}
         </p>

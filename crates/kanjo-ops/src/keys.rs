@@ -5,6 +5,10 @@
 //! 256-bit key generated and stored. An existing database without a key is an
 //! error: a new key would make it unreadable for good.
 //!
+//! Lookup and creation run under an exclusive lock on `kanjo.key.lock`, so a
+//! service and a command started at the same moment on a new machine agree on
+//! one key instead of each storing its own.
+//!
 //! `EncryptionMode::Keyfile` never consults the keyring; `KANJO_NO_KEYRING=1`
 //! disables it for every mode (the key file is used instead, and `Keyring`
 //! mode fails). The keyring calls block; run them off the async runtime.
@@ -160,6 +164,16 @@ pub fn resolve_with(paths: &Paths, mode: EncryptionMode, keyring: Option<&dyn Ke
     if mode == EncryptionMode::Off {
         return Ok((None, KeySource::None));
     }
+    let _lock = lock_keys(paths)?;
+    let staging = paths.home.join("kanjo.db.restoring");
+    if !paths.db().exists() && staging.exists() {
+        return Err(Error::Config(format!(
+            "{} is missing but {} exists: a restore was interrupted; rename it to {} to finish the restore",
+            paths.db().display(),
+            staging.display(),
+            paths.db().display()
+        )));
+    }
     let keyring_error = match find(paths, mode, keyring)? {
         Found::Key(key, source) => return Ok((Some(key), source)),
         Found::Missing { keyring_error } => keyring_error,
@@ -181,13 +195,12 @@ pub fn resolve_with(paths: &Paths, mode: EncryptionMode, keyring: Option<&dyn Ke
         EncryptionMode::Keyfile => write_key_file(paths, &key).map(|_| (Some(key), KeySource::Keyfile)),
         EncryptionMode::Keyring => {
             let kr = keyring.ok_or_else(|| Error::Config("encryption = \"keyring\" but the OS keyring is disabled".into()))?;
-            store_in_keyring(kr, &key)?;
-            Ok((Some(key), KeySource::Keyring))
+            Ok((Some(store_in_keyring(kr, key)?), KeySource::Keyring))
         }
         _ => {
             if let Some(kr) = keyring {
-                match store_in_keyring(kr, &key) {
-                    Ok(()) => return Ok((Some(key), KeySource::Keyring)),
+                match store_in_keyring(kr, key.clone()) {
+                    Ok(stored) => return Ok((Some(stored), KeySource::Keyring)),
                     Err(e) => tracing::info!(error = %e, "OS keyring not usable, falling back to a key file"),
                 }
             }
@@ -244,10 +257,32 @@ pub(crate) fn lookup(paths: &Paths, mode: EncryptionMode, keyring: Option<&dyn K
     })
 }
 
-fn store_in_keyring(kr: &dyn Keyring, key: &DbKey) -> Result<()> {
+/// Exclusive lock held while the key is looked up or created; released on drop.
+fn lock_keys(paths: &Paths) -> Result<std::fs::File> {
+    paths.ensure_home()?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let file = paths.key_lock_file();
+    let f = opts.open(&file).map_err(|e| Error::Config(format!("cannot open the key lock {}: {e}", file.display())))?;
+    f.lock().map_err(|e| Error::Config(format!("cannot lock {}: {e}", file.display())))?;
+    Ok(f)
+}
+
+/// Stores `key` and returns the key now in the keyring. An entry that appeared
+/// since the lookup (written by a process that does not take the key lock, such
+/// as an older release) is used rather than overwritten.
+fn store_in_keyring(kr: &dyn Keyring, key: DbKey) -> Result<DbKey> {
+    if let Some(existing) = kr.get()?.and_then(|hex| DbKey::from_hex(hex.trim()).ok()) {
+        return Ok(existing);
+    }
     kr.set(key.as_hex())?;
     match kr.get()? {
-        Some(back) if back.trim() == key.as_hex() => Ok(()),
+        Some(back) if back.trim() == key.as_hex() => Ok(key),
         _ => Err(Error::Other("the keyring did not return the key that was stored".into())),
     }
 }
@@ -394,6 +429,72 @@ pub(crate) mod tests {
         let broken = FakeKeyring { broken: true, ..Default::default() };
         let err = resolve_with(&p, EncryptionMode::Auto, Some(&broken)).unwrap_err().to_string();
         assert!(err.contains("no secret service"), "{err}");
+    }
+
+    /// A keyring shared between threads, slow enough to widen any race.
+    #[derive(Default)]
+    struct SharedKeyring(std::sync::Mutex<Option<String>>);
+
+    impl Keyring for SharedKeyring {
+        fn get(&self) -> Result<Option<String>> {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            Ok(self.0.lock().unwrap().clone())
+        }
+        fn set(&self, secret: &str) -> Result<()> {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            *self.0.lock().unwrap() = Some(secret.to_string());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn simultaneous_first_starts_agree_on_one_key() {
+        for mode in [EncryptionMode::Keyfile, EncryptionMode::Auto, EncryptionMode::Keyring] {
+            for _ in 0..4 {
+                let (_d, p) = paths();
+                let kr = SharedKeyring::default();
+                let barrier = std::sync::Barrier::new(4);
+                let keys: Vec<String> = std::thread::scope(|s| {
+                    let handles: Vec<_> = (0..4)
+                        .map(|_| {
+                            s.spawn(|| {
+                                barrier.wait();
+                                let keyring: Option<&dyn Keyring> = if mode == EncryptionMode::Keyfile { None } else { Some(&kr) };
+                                let mut config = kanjo_core::config::Config::default();
+                                config.storage.encryption = mode;
+                                let opened = crate::open_store_with(&p, &config, keyring).and_then(|(store, _)| store.schema_version());
+                                opened.unwrap_or_else(|e| panic!("{mode:?}: {e}"));
+                                let (key, _) = resolve_with(&p, mode, keyring).unwrap();
+                                key.unwrap().as_hex().to_string()
+                            })
+                        })
+                        .collect();
+                    handles.into_iter().map(|h| h.join().unwrap()).collect()
+                });
+                assert!(keys.windows(2).all(|w| w[0] == w[1]), "{mode:?}: every process uses the same key");
+                if mode != EncryptionMode::Keyfile {
+                    assert_eq!(kr.0.lock().unwrap().as_deref(), Some(keys[0].as_str()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_entry_that_appeared_meanwhile_is_not_overwritten() {
+        let kr = FakeKeyring { secret: RefCell::new(Some(KEY.to_string())), ..Default::default() };
+        let fresh = DbKey::from_hex(KEY.replace('0', "a")).unwrap();
+        assert_eq!(store_in_keyring(&kr, fresh).unwrap().as_hex(), KEY);
+        assert_eq!(kr.secret.borrow().as_deref(), Some(KEY));
+    }
+
+    #[test]
+    fn an_interrupted_restore_is_not_replaced_by_an_empty_database() {
+        let (_d, p) = paths();
+        std::fs::create_dir_all(&p.home).unwrap();
+        std::fs::write(p.key_file(), format!("{KEY}\n")).unwrap();
+        std::fs::write(p.home.join("kanjo.db.restoring"), b"x").unwrap();
+        let err = resolve_with(&p, EncryptionMode::Auto, None).unwrap_err().to_string();
+        assert!(err.contains("restore was interrupted"), "{err}");
     }
 
     #[test]

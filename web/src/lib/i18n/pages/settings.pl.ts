@@ -106,7 +106,7 @@ const pl: typeof en = {
     desktop: 'Powiadomienie na pulpicie',
     desktop_help: 'Kanjo pokazuje powiadomienie systemowe także przy zamkniętej stronie, o ile działa w tle.',
     bell: 'Dzwonek w terminalu',
-    bell_help: 'Pasek stanu w terminalu Claude Code dzwoni raz przy każdym ostrzeżeniu.',
+    bell_help: 'Dzwoni raz przy każdym ostrzeżeniu w terminalu, w którym kanjo serve działa na pierwszym planie. Nie dzwoni w Claude Code i milczy, gdy Kanjo działa jako usługa w tle.',
     in_app: 'Ostrzeżenia zawsze trafiają na stronę Alerty i do licznika przy dzwonku u góry.',
   },
   privacy: {

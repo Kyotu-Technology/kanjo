@@ -1,6 +1,8 @@
 <script lang="ts">
   import { t } from '../lib/i18n/index.svelte';
+  import type { Route } from '../lib/router';
   import { app } from '../lib/stores/app.svelte';
+  import { router } from '../lib/stores/router.svelte';
   import Card from '../lib/ui/Card.svelte';
   import PageHeader from '../lib/ui/PageHeader.svelte';
   import Skeleton from '../lib/ui/Skeleton.svelte';
@@ -12,6 +14,7 @@
   import PrivacySection from './settings/PrivacySection.svelte';
   import RetentionSection from './settings/RetentionSection.svelte';
   import SectionNav from './settings/SectionNav.svelte';
+  import { goToSection } from './settings/saver.svelte';
   import Summary from './settings/Summary.svelte';
 
   const s = $derived(app.settings);
@@ -23,6 +26,15 @@
     { id: 'privacy', label: t('settings.privacy.title') },
     { id: 'retention', label: t('settings.retention.title') },
   ]);
+
+  let jumped: Route | null = null;
+  $effect(() => {
+    const r = router.current;
+    if (!app.settings || !r.query.section || r === jumped) return;
+    jumped = r;
+    const id = setTimeout(() => goToSection(r.query.section), 60);
+    return () => clearTimeout(id);
+  });
 </script>
 
 <PageHeader title={t('settings.title')} lede={t('settings.lede')} />

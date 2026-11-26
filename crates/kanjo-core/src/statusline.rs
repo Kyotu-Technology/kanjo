@@ -184,11 +184,13 @@ impl StatuslineInput {
     /// `None` when the payload has no session id, since nothing can be attributed.
     pub fn to_record(&self, now_ms: i64) -> Option<StatuslineRecord> {
         let session_id = self.session_id.clone().filter(|s| !s.is_empty())?;
-        let window = |w: &Option<Window>| {
+        // The 5-hour and 7-day windows always reset; a spend limit may not say when (0 = no known reset).
+        let window = |w: &Option<Window>, reset_known: bool| {
             let w = w.as_ref()?;
+            let resets_at = secs_to_ms(w.resets_at);
             Some(WindowRecord {
                 used_pct: w.used_percentage.filter(|p| p.is_finite())?,
-                resets_at: secs_to_ms(w.resets_at)?,
+                resets_at: if reset_known { resets_at? } else { resets_at.unwrap_or(0) },
                 used_usd: w.used_usd,
                 limit_usd: w.limit_usd,
                 period: w.period.clone(),
@@ -216,9 +218,9 @@ impl StatuslineInput {
             exceeds_200k: self.exceeds_200k_tokens,
             fast_mode: self.fast_mode,
             effort: self.effort.as_ref().and_then(|e| e.level.clone()),
-            five_hour: limits.and_then(|l| window(&l.five_hour)),
-            seven_day: limits.and_then(|l| window(&l.seven_day)),
-            spend: limits.and_then(|l| window(&l.spend_limit)),
+            five_hour: limits.and_then(|l| window(&l.five_hour, true)),
+            seven_day: limits.and_then(|l| window(&l.seven_day, true)),
+            spend: limits.and_then(|l| window(&l.spend_limit, false)),
             cache: self.prompt_cache.as_ref().map(|c| {
                 let cause = c.last_miss_cause.as_ref();
                 CacheRecord {
@@ -295,5 +297,18 @@ mod tests {
         .unwrap();
         assert!(rec.five_hour.is_none() && rec.cache.is_none() && rec.ctx_used_pct.is_none());
         assert!(StatuslineInput::parse(b"not json").is_err());
+    }
+
+    #[test]
+    fn spend_limit_without_a_reset_time_is_kept() {
+        let rec = StatuslineInput::parse(
+            br#"{"session_id":"s","rate_limits":{"seven_day":{"used_percentage":5},"spend_limit":{"used_percentage":30,"used_usd":15.0,"limit_usd":50.0}}}"#,
+        )
+        .unwrap()
+        .to_record(1)
+        .unwrap();
+        assert!(rec.seven_day.is_none(), "a usage window without a reset time is unusable");
+        let spend = rec.spend.unwrap();
+        assert_eq!((spend.used_pct, spend.resets_at, spend.used_usd), (30.0, 0, Some(15.0)));
     }
 }

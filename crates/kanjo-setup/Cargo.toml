@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+getrandom = "0.4"
 jiff = { version = "1.0.3", default-features = false, features = ["std"] }
 kanjo-core = { version = "0.1.0", path = "../kanjo-core" }
 serde = { version = "1.0.229", features = ["derive"] }

@@ -32,7 +32,7 @@ fn healthy() -> (Machine, Config, DatabaseInfo) {
         .unwrap();
     let mut cfg = Config::default();
     let req = HookInstallRequest { statusline: true, session_hooks: true, service: false };
-    crate::claude::install_with(&m.paths, &mut cfg, &req, &m.exe, crate::shell::Shell::Posix, NOW).unwrap();
+    crate::claude::install_with(&m.paths, &mut cfg, &req, &m.exe, None, crate::shell::Shell::Posix, NOW).unwrap();
     m.paths.ensure_home().unwrap();
 
     let ts = TestStore::new();
@@ -246,4 +246,78 @@ fn parses_versions() {
     assert_eq!(parse_version("3"), Some((3, 0, 0)));
     assert_eq!(parse_version("beta"), None);
     assert!(parse_version("2.1.9") < parse_version("2.1.251"));
+}
+
+#[test]
+fn an_unencrypted_database_is_never_told_to_switch_encryption_on() {
+    let (m, mut cfg, mut db) = healthy();
+    db.encrypted = false;
+    db.key_source = KeySource::None;
+    cfg.storage.encryption = EncryptionMode::Off;
+    for lang in ["en", "pl"] {
+        let checks = run(&input(&m, &cfg, Some(db.clone())), lang);
+        let fix = by_id(&checks)["encryption"].fix.clone().unwrap();
+        assert!(fix.contains("encryption = \"off\"") && fix.contains("kanjo import"), "{lang}: {fix}");
+        assert!(fix.contains(&m.paths.db().display().to_string()), "{lang}: {fix}");
+    }
+}
+
+#[test]
+fn a_plain_database_that_fails_to_open_points_back_to_encryption_off() {
+    let m = machine();
+    m.paths.ensure_home().unwrap();
+    let ts = TestStore::new();
+    fs::copy(ts.store.path(), m.paths.db()).unwrap();
+    assert!(is_plaintext_db(&m.paths.db()), "the test store is plain SQLite");
+    let cfg = Config::default();
+    let mut inp = input(&m, &cfg, None);
+    inp.database_error = Some("its encryption key was found neither in the key file nor in the OS keyring".into());
+    let checks = run(&inp, "en");
+    let fix = by_id(&checks)["database"].fix.clone().unwrap();
+    assert!(fix.contains("never encrypted") && fix.contains("encryption = \"off\""), "{fix}");
+    fs::write(m.paths.db(), [0u8; 64]).unwrap();
+    assert!(!is_plaintext_db(&m.paths.db()));
+    let fix = by_id(&run(&inp, "en"))["database"].fix.clone().unwrap();
+    assert!(fix.contains("restore a damaged database"), "{fix}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_permission_fix_names_only_files_that_exist() {
+    use std::os::unix::fs::PermissionsExt;
+    let (m, cfg, db) = healthy();
+    fs::set_permissions(m.paths.db(), fs::Permissions::from_mode(0o644)).unwrap();
+    let checks = run(&input(&m, &cfg, Some(db)), "en");
+    let fix = by_id(&checks)["data_dir"].fix.clone().unwrap();
+    assert_eq!(fix, format!("chmod 600 '{}'", m.paths.db().display()));
+    assert!(!fix.contains("access.token") && !fix.contains("*"));
+}
+
+#[test]
+fn a_demo_reports_its_deliberate_gaps_as_fine() {
+    let m = machine();
+    let ts = TestStore::new();
+    let db = DatabaseInfo {
+        size_bytes: ts.store.size_bytes() as i64,
+        encrypted: false,
+        key_source: KeySource::None,
+        schema_version: ts.store.schema_version().unwrap(),
+    };
+    m.paths.ensure_home().unwrap();
+    fs::copy(ts.store.path(), m.paths.db()).unwrap();
+    kanjo_core::paths::make_private_file(&m.paths.db()).unwrap();
+    let cfg = Config::default();
+    let mut inp = input(&m, &cfg, Some(db));
+    inp.exe = None;
+    inp.quarantined_records = Some(4);
+    inp.service = ServiceState::NotInstalled;
+    inp.demo = true;
+    for lang in ["en", "pl"] {
+        for c in run(&inp, lang) {
+            assert_eq!(c.status, CheckStatus::Ok, "{lang} {}: {}", c.id, c.detail);
+            assert!(c.fix.is_none(), "{lang} {}", c.id);
+        }
+    }
+    let checks = run(&inp, "en");
+    assert!(by_id(&checks)["encryption"].detail.starts_with("demo:"));
 }

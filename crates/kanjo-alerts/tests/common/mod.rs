@@ -23,7 +23,9 @@ pub fn at(now: i64) -> Ctx {
 }
 
 pub fn store() -> TestStore {
-    TestStore::new()
+    let t = TestStore::new();
+    configure(&t, |s| s.language = kanjo_core::settings::Language::En);
+    t
 }
 
 pub fn configure(t: &TestStore, f: impl FnOnce(&mut Settings)) {

@@ -51,6 +51,18 @@ fn limit_threshold_fires_once_per_window_and_only_the_highest() {
 }
 
 #[test]
+fn alerts_read_on_a_later_day_name_the_date() {
+    let t = store();
+    configure(&t, |s| s.alerts.forecast = false);
+    sample(&t, LimitKind::FiveHour, NOW - 10 * MIN, 85.0, NOW + 2 * HOUR);
+    assert_eq!(evaluate(&t.store, &ctx()).unwrap()[0].message, "You have used 85% of the 5-hour limit. It resets today at 13:00.");
+    let same_day = list(&t.store, &at(NOW + 10 * HOUR), &Query::default()).unwrap();
+    assert!(same_day.items[0].message.ends_with("It resets today at 13:00."));
+    let next_day = list(&t.store, &at(NOW + DAY_MS), &Query { lang: Some("pl".into()), ..Default::default() }).unwrap();
+    assert_eq!(next_day.items[0].message, "Zużycie limitu 5-godzinnego wynosi 85%. Reset nastąpi 26 listopada o 13:00.");
+}
+
+#[test]
 fn limit_threshold_respects_an_empty_threshold_list() {
     let t = store();
     configure(&t, |s| {
@@ -118,9 +130,12 @@ fn cost_spike_fires_once_per_day() {
     assert_eq!(a.len(), 1, "{a:?}");
     assert_eq!(a[0].kind, AlertKind::CostSpike);
     assert_eq!(a[0].params["date"], "2026-11-26");
-    assert_eq!(a[0].message, "Cost on 2026-11-26 reached $30.00, 6.0 times the median day ($5.00 over the last 14 active days).");
+    assert_eq!(a[0].message, "Cost on 26 November reached $30.00, 6.0 times the median day ($5.00 over the last 14 active days).");
     let (_, pl) = render(a[0].kind, &a[0].params, "pl");
-    assert_eq!(pl, "Koszt w dniu 2026-11-26 sięgnął 30,00 USD, czyli 6,0 raza więcej niż mediana (5,00 USD z ostatnich 14 aktywnych dni).");
+    assert_eq!(
+        pl,
+        "Koszt w dniu 26 listopada sięgnął 30,00\u{a0}$, czyli 6,0 raza więcej niż mediana (5,00\u{a0}$ z ostatnich 14 aktywnych dni)."
+    );
     spend(&t, 1, "today", NOW - 40 * MIN, 10.0);
     assert!(evaluate(&t.store, &ctx()).unwrap().is_empty());
     assert!(evaluate(&spike_history(12.0).store, &ctx()).unwrap().is_empty(), "below the floor");
@@ -148,7 +163,10 @@ fn runaway_session_fires_once_per_session() {
     assert_eq!(a[0].message, "Session big-sess in shop has reached $15.00, 7.5 times a typical session ($2.00).");
     let (title, pl) = render(a[0].kind, &a[0].params, "pl");
     assert_eq!(title, "Sesja wymyka się spod kontroli");
-    assert_eq!(pl, "Koszt sesji big-sess w projekcie shop sięgnął 15,00 USD, czyli 7,5 raza więcej niż koszt typowej sesji (2,00 USD).");
+    assert_eq!(
+        pl,
+        "Koszt sesji big-sess w projekcie shop sięgnął 15,00\u{a0}$, czyli 7,5 raza więcej niż koszt typowej sesji (2,00\u{a0}$)."
+    );
     spend(&t, 1, "big-session", NOW - MIN, 1.0);
     assert!(evaluate(&t.store, &ctx()).unwrap().is_empty());
 
@@ -235,7 +253,7 @@ fn cache_cold_fires_once_per_expiry() {
     assert_eq!(title, "Cache promptu wygasł");
     assert_eq!(
         pl,
-        "Cache promptu sesji cold-one w projekcie shop wygasł dziś o 10:55. Następne zapytanie zapisze w nim ponownie około 120 tys. tokenów (ok. 0,60 USD)."
+        "Cache promptu sesji cold-one w projekcie shop wygasł dziś o 10:55. Następne zapytanie zapisze w nim ponownie około 120 tys. tokenów (ok. 0,60\u{a0}$)."
     );
     assert!(evaluate(&t.store, &at(NOW + MIN)).unwrap().is_empty());
     assert!(evaluate(&cold_session(10_000).store, &ctx()).unwrap().is_empty(), "small context");
@@ -337,7 +355,7 @@ fn project_labels_follow_redaction_at_read_time() {
     let t = wide_context(90.0);
     evaluate(&t.store, &ctx()).unwrap();
     configure(&t, |s| s.privacy.redact_paths = true);
-    let alias = kanjo_core::store::write::project_alias("shop");
+    let alias = t.store.read(|c| kanjo_core::store::write::project_alias(c, "shop")).unwrap();
     let items = list(&t.store, &ctx(), &Query::default()).unwrap().items;
     assert_eq!(items[0].params["project"], alias.as_str());
     assert!(items[0].message.contains(&alias));
@@ -379,7 +397,7 @@ fn every_kind_renders_in_both_languages() {
     );
     assert_eq!(
         render(AlertKind::BudgetExceeded, &params, "pl").1,
-        "Wydatki wyniosły 85,00 USD i przekroczyły miesięczny budżet 100,00 USD dla klienta Acme (85%)."
+        "Wydatki wyniosły 85,00\u{a0}$ i przekroczyły miesięczny budżet 100,00\u{a0}$ dla klienta Acme (85%)."
     );
     assert!(render(AlertKind::CacheCold, &params, "en").1.contains("1.5M tokens"));
     assert!(render(AlertKind::CacheCold, &params, "pl").1.contains("1,5 mln tokenów"));

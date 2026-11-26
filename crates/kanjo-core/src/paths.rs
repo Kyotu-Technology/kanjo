@@ -46,6 +46,11 @@ impl Paths {
     pub fn key_file(&self) -> PathBuf {
         self.home.join("kanjo.key")
     }
+    /// Held while the database key is looked up or created, so two processes
+    /// starting at once agree on one key. Never deleted.
+    pub fn key_lock_file(&self) -> PathBuf {
+        self.home.join("kanjo.key.lock")
+    }
     pub fn token_file(&self) -> PathBuf {
         self.home.join("access.token")
     }
@@ -170,9 +175,54 @@ pub fn make_private_file(file: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Replaces `path` with `bytes` so a reader sees the old or the new content,
+/// never a torn file: written to a temporary owner-only file in the same
+/// directory, flushed to disk, then renamed over the target.
+pub fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dir.join(format!(".{name}.tmp-{}", std::process::id()));
+    let result = (|| -> Result<()> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        make_private_file(&tmp)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_write_replaces_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        std::fs::write(&file, "old").unwrap();
+        write_private_atomic(&file, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
 
     fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |name| vars.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v))

@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use tokio::sync::{broadcast, watch, Notify};
 
-const DEMO_DAYS: u32 = 30;
 const DEMO_SEED: u64 = 42;
 const EVENT_BUFFER: usize = 256;
 
@@ -44,6 +43,8 @@ pub(crate) struct Inner {
     pub importing: AtomicBool,
     pub limiter: Mutex<Limiter>,
     pub login_codes: Mutex<Vec<(String, std::time::Instant)>>,
+    /// Random per start; named in `server.json` and in the login codes the command line writes.
+    pub instance: String,
 }
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -69,7 +70,7 @@ impl AppState {
             let paths = Paths::at(&opts.paths.home, opts.paths.home.join("demo-claude-dir"));
             let (store, key_source) = kanjo_ops::open_store_with(&paths, &config, None)?;
             let now = kanjo_core::time::now_ms();
-            kanjo_ops::demo::populate(&store, now, DEMO_DAYS, DEMO_SEED)?;
+            kanjo_ops::demo::populate(&store, now, opts.demo_days.unwrap_or(crate::DEMO_DAYS).max(1), DEMO_SEED)?;
             let settings = Settings::load(&store)?;
             let ctx = Ctx { week_start: settings.week_start.min(6), ..Ctx::system() };
             let created = kanjo_alerts::evaluate(&store, &ctx)?;
@@ -84,12 +85,13 @@ impl AppState {
         };
         let token = if crate::auth_enabled(&config) { Some(kanjo_ops::token::load_or_create(&paths)?) } else { None };
         let session = token.as_deref().map(crate::security::session_value);
-        let week_start = Settings::load(&store)?.week_start.min(6);
+        let settings = Settings::load(&store)?;
+        let week_start = settings.week_start.min(6);
         let tls = config.server.tls_cert.is_some() && config.server.tls_key.is_some();
         let port = config.server.port;
         let (events, _) = broadcast::channel(EVENT_BUFFER);
         let (shutdown, _) = watch::channel(false);
-        Ok(AppState {
+        let state = AppState {
             inner: Arc::new(Inner {
                 store,
                 key_source,
@@ -108,8 +110,13 @@ impl AppState {
                 importing: AtomicBool::new(false),
                 limiter: Mutex::new(Limiter::default()),
                 login_codes: Mutex::new(Vec::new()),
+                instance: kanjo_setup::server_file::random_hex(16)?,
             }),
-        })
+        };
+        if let Err(e) = state.inner.apply_settings(&settings) {
+            tracing::warn!(error = %e, "could not bring config.toml in line with the privacy settings");
+        }
+        Ok(state)
     }
 
     /// The port the Host and Origin checks expect.
@@ -171,10 +178,25 @@ impl Inner {
         let _ = self.events.send(event);
     }
 
-    pub fn apply_settings(&self, settings: &Settings) {
+    /// Applies saved settings to the running server: the week start, the
+    /// ingestor's title flag and the statusline's `capture_titles` in
+    /// config.toml (the fast path never opens the database). Demo mode leaves
+    /// config.toml alone.
+    pub fn apply_settings(&self, settings: &Settings) -> Result<()> {
         self.week_start.store(settings.week_start.min(6), Ordering::Relaxed);
+        let titles = settings.privacy.session_titles;
         if let Some(i) = &self.ingestor {
-            i.set_store_titles(settings.privacy.session_titles);
+            i.set_store_titles(titles);
         }
+        if self.demo {
+            return Ok(());
+        }
+        let mut disk = Config::load(&self.paths)?;
+        if disk.statusline.capture_titles != titles {
+            disk.statusline.capture_titles = titles;
+            disk.save(&self.paths)?;
+        }
+        self.config.write().unwrap_or_else(|e| e.into_inner()).statusline.capture_titles = titles;
+        Ok(())
     }
 }

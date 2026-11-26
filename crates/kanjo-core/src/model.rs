@@ -82,4 +82,6 @@ pub enum InsertOutcome {
     /// The same message was seen again with higher token counts (streaming); totals were adjusted.
     Updated,
     Duplicate,
+    /// The record lies inside a purge mark (deleted on request or by retention) and was not stored.
+    Purged,
 }

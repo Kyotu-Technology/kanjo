@@ -46,6 +46,7 @@
     font-size: var(--fs-sm);
     line-height: 1.45;
     white-space: nowrap;
+    max-width: min(340px, calc(100vw - 32px));
   }
   .title {
     color: var(--ink-3);
@@ -64,6 +65,7 @@
     flex: none;
   }
   .v {
+    white-space: normal;
     font-weight: var(--fw-semibold);
     color: var(--ink);
     font-variant-numeric: tabular-nums;

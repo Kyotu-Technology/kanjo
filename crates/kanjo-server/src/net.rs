@@ -1,7 +1,7 @@
 //! Binding, TLS and the accept loop.
 
 use crate::runtime::{self, Runtime};
-use crate::security::LocalAddr;
+use crate::security::{ConnState, LocalAddr};
 use crate::state::AppState;
 use crate::ServeOptions;
 use axum::extract::ConnectInfo;
@@ -11,11 +11,14 @@ use hyper_util::server::graceful::GracefulShutdown;
 use hyper_util::service::TowerToHyperService;
 use kanjo_core::config::{AuthMode, Config};
 use kanjo_core::{Error, Result};
+use kanjo_setup::server_file::{self, Announcement, ServerRecord};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{watch, Notify};
 use tokio::task::JoinHandle;
 use tokio_rustls::TlsAcceptor;
 use tower::ServiceExt;
@@ -115,9 +118,12 @@ fn warn_if_readable_by_others(path: &str) {
 
 fn bind_error(addr: SocketAddr, e: std::io::Error) -> Error {
     match e.kind() {
-        std::io::ErrorKind::AddrInUse => Error::Other(format!(
-            "{addr} is already in use: Kanjo is probably already running (open it with `kanjo open`); \
-             otherwise another program holds the port, so set server.port in config.toml"
+        std::io::ErrorKind::AddrInUse => Error::Io(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            format!(
+                "{addr} is already in use: Kanjo is probably already running (open it with `kanjo open`); \
+                 otherwise another program holds the port, so set server.port in config.toml"
+            ),
         )),
         std::io::ErrorKind::PermissionDenied => Error::Other(format!("not allowed to listen on {addr}; choose a port above 1024")),
         _ => Error::Other(format!("cannot listen on {addr}: {e}")),
@@ -132,12 +138,16 @@ pub struct Server {
     accept: JoinHandle<()>,
     runtime: Runtime,
     done: watch::Receiver<bool>,
+    announcement: Option<Announcement>,
 }
 
 /// Validates the configuration, binds, opens the store and starts serving and
 /// the background loops. Port 0 picks a free port; read it from [`Server::local_addr`].
 pub async fn start(opts: ServeOptions) -> Result<Server> {
     let addr = check_bind(&opts.config)?;
+    if let Some(other) = server_file::live(&opts.paths) {
+        return Err(server_file::already_running(&opts.paths, &other));
+    }
     let tls = match (&opts.config.server.tls_cert, &opts.config.server.tls_key) {
         (Some(cert), Some(key)) => Some(tls_acceptor(cert, key)?),
         _ => None,
@@ -154,7 +164,28 @@ pub async fn start(opts: ServeOptions) -> Result<Server> {
         accept_loop(listener, tls, app, stop).await;
         done_tx.send_replace(true);
     });
-    Ok(Server { addr: local, url: base_url(&opts.config, local), state, accept, runtime, done })
+    let url = base_url(&opts.config, local);
+    let record = ServerRecord {
+        pid: std::process::id(),
+        addr: local,
+        url: url.clone(),
+        auth: state.inner.token.is_some(),
+        demo: opts.demo,
+        instance: state.inner.instance.clone(),
+        version: kanjo_core::VERSION.to_string(),
+        started_at: kanjo_core::time::now_ms(),
+    };
+    let paths = opts.paths.clone();
+    let announcement = match tokio::task::spawn_blocking(move || server_file::announce(&paths, &record)).await {
+        Ok(Ok(a)) => Some(a),
+        Ok(Err(e)) => {
+            state.begin_shutdown();
+            runtime.stop().await;
+            return Err(e);
+        }
+        Err(e) => return Err(Error::Other(format!("start-up task failed: {e}"))),
+    };
+    Ok(Server { addr: local, url, state, accept, runtime, done, announcement })
 }
 
 impl Server {
@@ -188,20 +219,52 @@ impl Server {
 
     /// Stops accepting, ends event streams, lets open requests finish (up to
     /// five seconds) and stops the background loops.
-    pub async fn shutdown(self) -> Result<()> {
+    pub async fn shutdown(mut self) -> Result<()> {
         self.state.begin_shutdown();
         let abort = self.accept.abort_handle();
-        if tokio::time::timeout(DRAIN_TIMEOUT * 2, self.accept).await.is_err() {
+        if tokio::time::timeout(DRAIN_TIMEOUT * 2, &mut self.accept).await.is_err() {
             abort.abort();
         }
         self.runtime.stop().await;
+        drop(self.announcement.take());
         Ok(())
+    }
+}
+
+struct Conn {
+    proven: Arc<AtomicBool>,
+    close: Arc<Notify>,
+}
+
+/// Open connections, oldest first. When all slots are taken, the oldest
+/// connection that has not yet presented a valid credential is closed to make
+/// room, so idle or unauthenticated sockets cannot keep the owner out.
+#[derive(Default)]
+struct Conns {
+    next: u64,
+    open: BTreeMap<u64, Conn>,
+}
+
+impl Conns {
+    fn admit(&mut self, limit: usize) -> Option<(u64, Arc<AtomicBool>, Arc<Notify>)> {
+        if self.open.len() >= limit {
+            let victim = self.open.iter().find(|(_, c)| !c.proven.load(Ordering::Relaxed)).map(|(id, _)| *id)?;
+            if let Some(c) = self.open.remove(&victim) {
+                c.close.notify_one();
+            }
+        }
+        let id = self.next;
+        self.next += 1;
+        let conn = Conn { proven: Arc::new(AtomicBool::new(false)), close: Arc::new(Notify::new()) };
+        let out = (id, conn.proven.clone(), conn.close.clone());
+        self.open.insert(id, conn);
+        Some(out)
     }
 }
 
 async fn accept_loop(listener: TcpListener, tls: Option<TlsAcceptor>, app: Router, mut stop: watch::Receiver<bool>) {
     let graceful = GracefulShutdown::new();
-    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let conns = Arc::new(Mutex::new(Conns::default()));
     let mut http = hyper::server::conn::http1::Builder::new();
     http.timer(TokioTimer::new()).header_read_timeout(HEADER_TIMEOUT);
     loop {
@@ -222,14 +285,22 @@ async fn accept_loop(listener: TcpListener, tls: Option<TlsAcceptor>, app: Route
                 continue;
             }
         };
-        let Ok(slot) = slots.clone().try_acquire_owned() else {
+        let admitted = conns.lock().unwrap_or_else(|e| e.into_inner()).admit(MAX_CONNECTIONS);
+        let Some((id, proven, close)) = admitted else {
             tracing::warn!("connection limit reached; closing a new connection");
             continue;
+        };
+        let release = {
+            let conns = conns.clone();
+            move || {
+                conns.lock().unwrap_or_else(|e| e.into_inner()).open.remove(&id);
+            }
         };
         let _ = tcp.set_nodelay(true);
         let local = tcp.local_addr().ok();
         let svc = app.clone().map_request(move |mut req: axum::http::Request<hyper::body::Incoming>| {
             req.extensions_mut().insert(ConnectInfo(peer));
+            req.extensions_mut().insert(ConnState(proven.clone()));
             if let Some(l) = local {
                 req.extensions_mut().insert(LocalAddr(l));
             }
@@ -242,24 +313,41 @@ async fn accept_loop(listener: TcpListener, tls: Option<TlsAcceptor>, app: Route
             None => {
                 tokio::spawn(async move {
                     let conn = http.serve_connection(TokioIo::new(tcp), svc);
-                    let _ = watcher.watch(conn).await;
-                    drop(slot);
+                    tokio::select! {
+                        _ = watcher.watch(conn) => {}
+                        _ = close.notified() => {}
+                    }
+                    release();
                 });
             }
             Some(acceptor) => {
                 let acceptor = acceptor.clone();
                 tokio::spawn(async move {
-                    let stream = match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(tcp)).await {
+                    let handshake = tokio::select! {
+                        r = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(tcp)) => r,
+                        _ = close.notified() => {
+                            release();
+                            return;
+                        }
+                    };
+                    let stream = match handshake {
                         Ok(Ok(s)) => s,
                         Ok(Err(e)) => {
                             tracing::debug!(error = %e, "TLS handshake failed");
+                            release();
                             return;
                         }
-                        Err(_) => return,
+                        Err(_) => {
+                            release();
+                            return;
+                        }
                     };
                     let conn = http.serve_connection(TokioIo::new(stream), svc);
-                    let _ = watcher.watch(conn).await;
-                    drop(slot);
+                    tokio::select! {
+                        _ = watcher.watch(conn) => {}
+                        _ = close.notified() => {}
+                    }
+                    release();
                 });
             }
         }

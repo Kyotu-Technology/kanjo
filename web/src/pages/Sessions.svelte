@@ -1,12 +1,15 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { SessionSummary } from '../lib/api/contract';
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
-  import { modelColor, modelLabel } from '../lib/charts/series';
+  import { modelColor, modelLabel, modelTitle } from '../lib/charts/series';
   import { fmt, i18n, t, tn } from '../lib/i18n/index.svelte';
   import { PRESETS, customRange, rangeFor, toDateInput, type DateRange } from '../lib/range';
   import { href } from '../lib/router';
   import { describeError } from '../lib/stores/app.svelte';
+  import { runExport } from '../lib/shell/actions';
+  import { usePageExport, type PageExport } from '../lib/shell/exports.svelte';
   import { navigate, router } from '../lib/stores/router.svelte';
   import Answer from '../lib/ui/Answer.svelte';
   import Banner from '../lib/ui/Banner.svelte';
@@ -46,6 +49,12 @@
   });
   $effect(() => {
     if (sortDir !== 'desc') sortDir = 'desc';
+  });
+  $effect(() => {
+    const p = router.current.query.project ?? '';
+    untrack(() => {
+      if (p !== project) project = p;
+    });
   });
   let filterKey = '';
   $effect(() => {
@@ -102,12 +111,21 @@
     project = '';
     range = rangeFor('last_90', i18n.now);
   }
+  const exp = $derived<PageExport>(
+    tab === 'turns'
+      ? { kind: 'server', view: 'turns', query: { ...scope } }
+      : { kind: 'server', view: 'sessions', query: { ...scope, q: debounced || undefined, sort: SORTS[sortKey] } },
+  );
+  usePageExport(() => exp);
 </script>
 
 {#snippet badge()}<ConfidenceBadge confidence="lower_bound" compact />{/snippet}
 {#snippet cacheHelp()}<InlineHelp text={t('pages.sessions.cache_help')} label={t('pages.sessions.cache')} />{/snippet}
 
 <PageHeader title={t('pages.sessions.title')} lede={t('pages.sessions.lede')}>
+  {#snippet meta()}
+    <Button size="sm" icon="download" onclick={() => runExport(exp)}>{t('common.export')}</Button>
+  {/snippet}
   {#snippet filters()}
     <label class="search">
       <span class="sr-only">{t('pages.sessions.search')}</span>
@@ -196,8 +214,8 @@
             </span>
           </span>
         {:else if col.key === 'model'}
-          {#if s.main_model}<span class="model"><span class="key" style="background:{modelColor(s.main_model)}"></span>{modelLabel(s.main_model)}</span>{/if}
-          {#if s.models.length > 1}<span class="sub">{s.models.filter((m) => m !== s.main_model).map(modelLabel).join(', ')}</span>{/if}
+          {#if s.main_model}<span class="model" title={modelTitle(s.main_model)}><span class="key" style="background:{modelColor(s.main_model)}"></span>{modelLabel(s.main_model)}</span>{/if}
+          {#if s.models.length > 1}<span class="sub" title={s.models.filter((m) => m !== s.main_model).join(', ')}>{s.models.filter((m) => m !== s.main_model).map(modelLabel).join(', ')}</span>{/if}
         {:else if col.key === 'last'}{fmt.ago(s.last_at)}<span class="sub">{fmt.dateTime(s.last_at)}</span>
         {:else if col.key === 'duration'}{fmt.duration(s.last_at - s.started_at)}
         {:else if col.key === 'tokens'}{fmt.compact(tokens(s))}

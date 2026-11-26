@@ -86,8 +86,14 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
     }
 }
 
-/// Writes an audit entry. The actor is the OS user running the server (a fixed
-/// name in demo mode); the request's peer address goes into the detail.
+/// Actor of an audit entry written for a request to the HTTP API (the dashboard or a script).
+pub(crate) const ACTOR_LOCAL: &str = "local";
+/// Actor of an audit entry the server writes on its own (daily retention).
+pub(crate) const ACTOR_SERVICE: &str = "service";
+
+/// Writes an audit entry with the actor `local`. The request's peer address
+/// goes into the detail as `client`, the OS user running the server as `user`
+/// (a fixed name in demo mode).
 fn audit(i: &Inner, caller: &Caller, action: &str, target: &str, detail: Value) -> Result<(), ApiErr> {
     let mut detail = match detail {
         Value::Object(m) => m,
@@ -98,13 +104,11 @@ fn audit(i: &Inner, caller: &Caller, action: &str, target: &str, detail: Value) 
         }
     };
     detail.insert("client".into(), caller.0.map_or(Value::Null, |ip| Value::String(ip.to_string())));
+    let user = if i.demo { "demo".to_string() } else { kanjo_ops::audit::actor() };
+    detail.insert("user".into(), Value::String(user));
     let detail = Value::Object(detail);
-    let result = if i.demo {
-        let now = kanjo_core::time::now_ms();
-        i.store.write(|tx| kanjo_ops::audit::record_tx(tx, now, "demo", action, target, &detail))
-    } else {
-        kanjo_ops::audit::record(&i.store, action, target, detail)
-    };
+    let now = kanjo_core::time::now_ms();
+    let result = i.store.write(|tx| kanjo_ops::audit::record_tx(tx, now, ACTOR_LOCAL, action, target, &detail));
     result.map_err(|e| {
         tracing::error!(error = %e, action, "audit entry could not be written");
         ApiErr::internal()
@@ -228,25 +232,34 @@ async fn settings(State(s): State<AppState>) -> ApiResult<Settings> {
     s.db(|i, _| Ok(Settings::load(&i.store)?)).await.map(Json)
 }
 
+const MAX_USD_RATE: f64 = 1e6;
+const MAX_RETENTION_DAYS: u32 = 36_500;
+
 fn validate_settings(s: &Settings) -> Result<(), ApiErr> {
-    let pct = |v: f64| v.is_finite() && v > 0.0 && v <= 100.0;
+    let within = |v: f64, lo: f64, hi: f64| v.is_finite() && (lo..=hi).contains(&v);
     if s.week_start > 6 {
         return Err(ApiErr::invalid("week_start must be 0 (Monday) to 6 (Sunday)"));
     }
-    if !(s.currency.usd_rate.is_finite() && s.currency.usd_rate > 0.0) {
-        return Err(ApiErr::invalid("currency.usd_rate must be a positive number"));
+    if !(s.currency.usd_rate.is_finite() && s.currency.usd_rate > 0.0 && s.currency.usd_rate <= MAX_USD_RATE) {
+        return Err(ApiErr::invalid("currency.usd_rate must be a number above 0 and at most 1000000"));
     }
-    if s.currency.code.is_empty() || s.currency.code.len() > 8 || !s.currency.code.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Err(ApiErr::invalid("currency.code must be a currency code such as USD"));
+    if s.currency.code.len() != 3 || !s.currency.code.chars().all(|c| c.is_ascii_alphabetic()) {
+        return Err(ApiErr::invalid("currency.code must be a three-letter currency code such as USD"));
     }
     if s.plan.monthly_usd.is_some_and(|v| !v.is_finite() || v < 0.0) {
         return Err(ApiErr::invalid("plan.monthly_usd must not be negative"));
     }
-    if s.alerts.limit_thresholds.len() > 10 || !s.alerts.limit_thresholds.iter().all(|t| pct(*t)) {
-        return Err(ApiErr::invalid("alerts.limit_thresholds takes up to 10 percentages between 0 and 100"));
+    let thresholds = &s.alerts.limit_thresholds;
+    if thresholds.is_empty() || thresholds.len() > 10 || !thresholds.iter().all(|t| within(*t, 1.0, 100.0)) {
+        return Err(ApiErr::invalid("alerts.limit_thresholds takes 1 to 10 percentages between 1 and 100"));
     }
-    if !pct(s.alerts.context_threshold) {
-        return Err(ApiErr::invalid("alerts.context_threshold must be a percentage between 0 and 100"));
+    if !within(s.alerts.context_threshold, 10.0, 100.0) {
+        return Err(ApiErr::invalid("alerts.context_threshold must be a percentage between 10 and 100"));
+    }
+    let r = &s.retention;
+    let days = [r.requests_days, r.aggregates_days, r.limit_samples_days, r.alerts_days, r.audit_days, r.quarantine_days];
+    if days.iter().any(|d| *d > MAX_RETENTION_DAYS) {
+        return Err(ApiErr::invalid("retention days must be between 0 (keep forever) and 36500"));
     }
     Ok(())
 }
@@ -263,7 +276,7 @@ async fn put_settings(State(s): State<AppState>, caller: Caller, ApiJson(new): A
     s.db(move |i, _| {
         let old = Settings::load(&i.store)?;
         new.save(&i.store)?;
-        i.apply_settings(&new);
+        i.apply_settings(&new)?;
         audit(i, &caller, "settings.update", "settings", json!({ "changed": changed_sections(&old, &new) }))?;
         Ok(Settings::load(&i.store)?)
     })
@@ -343,7 +356,12 @@ async fn system(State(s): State<AppState>, ApiQuery(q): ApiQuery) -> ApiResult<S
         input.quarantined_records = Some(data.quarantined_records);
         input.claude_code_version = cc_version.clone();
         input.service = service;
-        let lang = q.lang.clone().unwrap_or_else(|| kanjo_alerts::settings_lang(&settings).to_string());
+        input.demo = i.demo;
+        let asked = q.lang.as_deref().map(|l| l.to_ascii_lowercase());
+        let lang = match asked.as_deref().and_then(|l| l.get(..2)) {
+            Some(l @ ("en" | "pl")) => l.to_string(),
+            _ => kanjo_alerts::settings_lang(&settings).to_string(),
+        };
         let checks = kanjo_setup::doctor::run(&input, &lang);
         Ok(SystemInfo {
             version: kanjo_core::VERSION.to_string(),
@@ -427,22 +445,31 @@ async fn backup(State(s): State<AppState>, caller: Caller) -> ApiResult<BackupIn
     .map(Json)
 }
 
-fn purge_target(req: &PurgeRequest) -> String {
-    match (req.project, &req.session, req.before, req.everything) {
-        (Some(p), _, _, _) => format!("project:{p}"),
-        (_, Some(s), _, _) => format!("session:{s}"),
-        (_, _, Some(b), _) => format!("before:{b}"),
-        (_, _, _, true) => "everything".into(),
-        _ => "none".into(),
-    }
+/// The audit target of a purge and the name of what it deletes: the project's
+/// display name (its alias under path redaction), the session id, the local
+/// date of the cutoff, or "everything".
+fn purge_target(i: &Inner, ctx: &kanjo_core::Ctx, req: &PurgeRequest) -> Result<(String, String), ApiErr> {
+    Ok(match (req.project, &req.session, req.before, req.everything) {
+        (Some(p), _, _, _) => {
+            let redact = Settings::load(&i.store)?.privacy.redact_paths;
+            let sql = "SELECT CASE WHEN ?2 THEN alias ELSE name END FROM projects WHERE id = ?1";
+            let name = i.store.read(|c| Ok(c.query_row(sql, rusqlite::params![p, redact], |r| r.get::<_, String>(0)).optional()?))?;
+            (format!("project:{p}"), name.unwrap_or_else(|| format!("project {p}")))
+        }
+        (_, Some(s), _, _) => (format!("session:{s}"), s.clone()),
+        (_, _, Some(b), _) => (format!("before:{b}"), ctx.date_label(b)),
+        (_, _, _, true) => ("everything".into(), "everything".into()),
+        _ => ("none".into(), "nothing".into()),
+    })
 }
 
 async fn purge(State(s): State<AppState>, caller: Caller, ApiJson(req): ApiJson<PurgeRequest>) -> ApiResult<PurgeReport> {
     let report = s
-        .db(move |i, _| {
+        .db(move |i, ctx| {
+            let (target, name) = purge_target(i, &ctx, &req)?;
             let report = kanjo_ops::retention::purge(&i.store, &req)?;
-            let detail = json!({ "request": req, "report": report });
-            audit(i, &caller, "data.purge", &purge_target(&req), detail)?;
+            let detail = json!({ "request": req, "deleted": name, "report": report });
+            audit(i, &caller, "data.purge", &target, detail)?;
             Ok(report)
         })
         .await?;

@@ -24,6 +24,7 @@
   import BreakdownCard from './usage/BreakdownCard.svelte';
   import Compare from './usage/Compare.svelte';
   import ExportDialog from './usage/ExportDialog.svelte';
+  import { usePageExport } from '../lib/shell/exports.svelte';
   import Figure from './usage/Figure.svelte';
   import FigureStrip from './usage/FigureStrip.svelte';
   import Heatmaps from './usage/Heatmaps.svelte';
@@ -117,6 +118,7 @@
   function clear() {
     f = { ...f, project: '', model: '', agent: '', client: '' };
   }
+  usePageExport(() => ({ kind: 'server', view: 'usage', query: { from: f.range.from, to: f.range.to, group: f.group, ...filt } }));
 </script>
 
 <PageHeader title={t('pages.usage.title')} lede={t('pages.usage.lede')}>

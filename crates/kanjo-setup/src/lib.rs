@@ -1,9 +1,11 @@
-//! kanjo-setup: everything that touches the user's machine outside Kanjo's own
-//! data directory: Claude Code's settings.json (statusLine and session hooks),
+//! kanjo-setup: Kanjo's integration with the user's machine: Claude Code's
+//! settings.json (statusLine and session hooks), the record a running server
+//! leaves in the data directory and the login codes handed to it,
 //! the background service, `kanjo doctor` and the statusline text.
 
 pub mod claude;
 pub mod doctor;
+pub mod server_file;
 pub mod service;
 pub mod shell;
 pub mod statusline;

@@ -21,6 +21,8 @@
 
   const system = useQuery(() => queries.system(i18n.lang));
   const chain = useQuery(() => queries.audit({ limit: 1 }));
+  const overview = useQuery(() => queries.overview());
+  const lastRequestAt = $derived(overview.data?.data.last_request_at ?? null);
   const d = $derived(system.data);
   const r = $derived(system.refreshing);
   const issues = $derived(d ? d.checks.filter((c) => c.status !== 'ok').length : 0);
@@ -49,14 +51,14 @@
     <div class="sk"><Skeleton lines={8} height="1.2em" /></div>
   </div>
 {:else}
-  <Verdict {d} chainOk={chain.data?.chain_ok ?? true} />
+  <Verdict {d} chainOk={chain.data?.chain_ok ?? true} {lastRequestAt} />
   <div class="layout kj-form">
     <aside class="side"><SectionNav label={t('system.sections')} items={sections} /></aside>
     <div class="stack">
       <Checks checks={d.checks} refreshing={r} />
       <Connection {d} refreshing={r} />
       <DataCard {d} refreshing={r} />
-      <Ingest ingest={d.ingest} refreshing={r} />
+      <Ingest ingest={d.ingest} {lastRequestAt} refreshing={r} />
       <Quarantine rows={d.quarantine} refreshing={r} />
       <Backups dataDir={d.data_dir} />
       <Purge />

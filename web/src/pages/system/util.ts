@@ -1,5 +1,14 @@
 import { fmt } from '../../lib/i18n/index.svelte';
 
+/**
+ * When the last request was recorded. The collector only knows what it wrote since it
+ * started, so the database's newest request fills in after a restart.
+ */
+export function lastActivity(lastEventAt: number | null | undefined, lastRequestAt: number | null | undefined): number | null {
+  const v = Math.max(lastEventAt ?? 0, lastRequestAt ?? 0);
+  return v > 0 ? v : null;
+}
+
 export function bytes(n: number): string {
   if (n >= 1_000_000_000) return `${fmt.number(n / 1_000_000_000, 1)} GB`;
   if (n >= 1_000_000) return `${fmt.number(n / 1_000_000, 1)} MB`;

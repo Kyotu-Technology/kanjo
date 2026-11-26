@@ -110,6 +110,17 @@ pub fn active(conn: &rusqlite::Connection) -> Result<PriceTable> {
     }
 }
 
+/// Cheap identity of the table in force: version and import time of the active
+/// imported table, `None` for the embedded one. Import and reset change it, so
+/// a long-running process can notice a table changed by another process.
+pub fn active_stamp(conn: &rusqlite::Connection) -> Result<Option<(String, i64)>> {
+    use rusqlite::OptionalExtension;
+    Ok(conn
+        .prepare_cached("SELECT version, imported_at FROM price_tables WHERE active = 1 LIMIT 1")?
+        .query_row([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?)
+}
+
 fn strip_date(model: &str) -> &str {
     match model.rsplit_once('-') {
         Some((head, tail)) if tail.len() == 8 && tail.bytes().all(|b| b.is_ascii_digit()) => head,

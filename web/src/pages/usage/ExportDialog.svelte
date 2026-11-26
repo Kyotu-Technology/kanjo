@@ -2,7 +2,8 @@
   import type { ExportFormat } from '../../lib/api/client';
   import { asApiError } from '../../lib/api/errors';
   import { fmt, t, tk } from '../../lib/i18n/index.svelte';
-  import { describeError } from '../../lib/stores/app.svelte';
+  import { runExport } from '../../lib/shell/actions';
+  import { api, describeError } from '../../lib/stores/app.svelte';
   import { toasts } from '../../lib/stores/toast.svelte';
   import Button from '../../lib/ui/Button.svelte';
   import Dialog from '../../lib/ui/Dialog.svelte';
@@ -17,14 +18,27 @@
     summary: string;
   }
   let { open = $bindable(), filters, summary }: Props = $props();
-  let what = $state<'usage' | 'breakdown'>('usage');
+  let what = $state<'usage' | 'breakdown' | 'heatmap' | 'compare'>('usage');
+  const jsonOnly = $derived(what === 'heatmap' || what === 'compare');
   let format = $state<ExportFormat>('csv');
   let busy = $state(false);
+  $effect(() => {
+    if (jsonOnly) format = 'json';
+  });
 
   async function run() {
     busy = true;
     try {
       const base = { from: filters.range.from, to: filters.range.to, ...apiFilters(filters) };
+      if (what === 'heatmap' || what === 'compare') {
+        const data =
+          what === 'heatmap'
+            ? async () => api().heatmap(base)
+            : async () => ({ week: await api().compare('week'), month: await api().compare('month') });
+        await runExport({ kind: 'json', name: what, data });
+        open = false;
+        return;
+      }
       const file = await download(what, format, what === 'usage' ? { ...base, group: filters.group } : { ...base, by: filters.by });
       toasts.push('success', t('pages.usage.export.done', { file }));
       open = false;
@@ -54,11 +68,19 @@
         <input type="radio" name="what" value="breakdown" bind:group={what} />
         <span>{t('pages.usage.export.breakdown', { dim: filters.by === 'mcp' ? tk(`pages.usage.dims.${filters.by}`) : tk(`pages.usage.dims.${filters.by}`).toLowerCase() })}</span>
       </label>
+      <label class="opt">
+        <input type="radio" name="what" value="heatmap" bind:group={what} />
+        <span>{t('pages.usage.export.heatmap')}</span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="what" value="compare" bind:group={what} />
+        <span>{t('pages.usage.export.compare')}</span>
+      </label>
     </fieldset>
     <fieldset>
       <legend>{t('pages.usage.export.format')}</legend>
       <label class="opt">
-        <input type="radio" name="format" value="csv" bind:group={format} />
+        <input type="radio" name="format" value="csv" bind:group={format} disabled={jsonOnly} />
         <span>{t('pages.usage.export.csv')}</span>
       </label>
       <label class="opt">

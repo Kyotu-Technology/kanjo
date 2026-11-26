@@ -34,13 +34,15 @@ fn cache_ratios_causes_and_breakers() {
              INSERT INTO config_changes (ts, kind, target, project_id, fingerprint) VALUES
                ({}, 'settings', 'project settings', {shop}, 'f1'),
                ({}, 'claude_md', 'user CLAUDE.md', NULL, 'f2'),
-               ({}, 'plugins', 'project plugins', {blog}, 'f3');",
+               ({}, 'plugins', 'project plugins', {blog}, 'f3'),
+               ({}, 'tools', 'another-session', {shop}, 'f4');",
             t1 + 40 * MIN,
             t1 + 50 * MIN,
             NOW - 40 * DAY_MS,
             t1 - 10 * MIN,
             t1 + 35 * MIN,
             t1 - 5 * MIN,
+            t1 - 3 * MIN,
         ),
     );
 

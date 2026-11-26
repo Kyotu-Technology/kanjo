@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Transcript } from '../../lib/api/contract';
   import { asApiError } from '../../lib/api/errors';
-  import { modelLabel } from '../../lib/charts/series';
+  import { modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t, tk } from '../../lib/i18n/index.svelte';
   import { href } from '../../lib/router';
   import { api, app, describeError } from '../../lib/stores/app.svelte';
@@ -43,7 +43,7 @@
       <div>
         <p class="h">{t('pages.session.transcript.off_title')}</p>
         <p class="b">{t('pages.session.transcript.off_body')}</p>
-        <Button href={href('/settings')} icon="settings">{t('pages.session.transcript.off_action')}</Button>
+        <Button href={href('/settings', { section: 'privacy' })} icon="settings">{t('pages.session.transcript.off_action')}</Button>
       </div>
     </div>
   {:else if !data}
@@ -70,7 +70,7 @@
             <p class="meta">
               <strong>{tk(`pages.session.transcript.role.${m.role}`)}</strong>
               {#if m.kind !== 'text'}<span class="kind">{tk(`pages.session.transcript.kind.${m.kind}`)}{#if m.tool}: {m.tool}{/if}</span>{/if}
-              {#if m.model}<span class="model">{modelLabel(m.model)}</span>{/if}
+              {#if m.model}<span class="model" title={modelTitle(m.model)}>{modelLabel(m.model)}</span>{/if}
               {#if m.ts !== null}<time>{fmt.time(m.ts)}</time>{/if}
             </p>
             {#if m.kind === 'thinking'}

@@ -1,6 +1,6 @@
 <script lang="ts">
   interface Props {
-    items: { label: string; color: string }[];
+    items: { label: string; color: string; title?: string }[];
     kind?: 'rect' | 'line';
   }
   let { items, kind = 'rect' }: Props = $props();
@@ -9,7 +9,7 @@
 {#if items.length > 1}
   <ul class="legend">
     {#each items as item (item.label)}
-      <li><span class="key {kind}" style="background:{item.color}"></span>{item.label}</li>
+      <li title={item.title}><span class="key {kind}" style="background:{item.color}"></span>{item.label}</li>
     {/each}
   </ul>
 {/if}

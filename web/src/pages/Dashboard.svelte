@@ -1,8 +1,9 @@
 <script lang="ts">
   import { queries } from '../lib/api/queries';
   import { useQuery } from '../lib/api/query.svelte';
+  import { usePageExport } from '../lib/shell/exports.svelte';
   import { fmt, i18n, t } from '../lib/i18n/index.svelte';
-  import { app } from '../lib/stores/app.svelte';
+  import { api, app } from '../lib/stores/app.svelte';
   import Banner from '../lib/ui/Banner.svelte';
   import Button from '../lib/ui/Button.svelte';
   import Card from '../lib/ui/Card.svelte';
@@ -26,6 +27,7 @@
   const hasData = $derived(!!o && o.data.first_request_at !== null);
   const importing = $derived(!!app.ingest?.backfill_running);
   const r = $derived(overview.refreshing);
+  usePageExport(() => ({ kind: 'json', name: 'overview', data: async () => overview.data ?? api().overview() }));
 </script>
 
 <PageHeader title={t('dashboard.title')}>

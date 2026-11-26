@@ -2,7 +2,9 @@
   import type { Block } from '../../lib/api/contract';
   import ChartTooltip from '../../lib/charts/ChartTooltip.svelte';
   import { dayKey } from '../../lib/i18n/format';
+  import { modelLabel } from '../../lib/charts/series';
   import { fmt, i18n, t, tk } from '../../lib/i18n/index.svelte';
+  import { topRows } from './blocks';
 
   interface Props {
     blocks: Block[];
@@ -90,11 +92,18 @@
             { label: t('pages.limits.peak'), value: active.b.peak_pct === null ? t('pages.limits.timeline.no_peak') : fmt.pct(active.b.peak_pct) },
             { label: t('pages.limits.cost'), value: fmt.money(active.b.usage.cost_usd) },
             { label: t('pages.limits.timeline.col_requests'), value: fmt.number(active.b.usage.requests) },
+            ...(active.b.by_project.length ? [{ label: t('pages.limits.timeline.col_projects'), value: list(active.b.by_project, (k, l) => l) }] : []),
+            ...(active.b.by_model.length ? [{ label: t('pages.limits.timeline.col_models'), value: list(active.b.by_model, (k) => modelLabel(k)) }] : []),
           ],
         }
       : null,
   );
   const ticks = [0, 6, 12, 18];
+  function list(rows: Block['by_project'], name: (key: string, label: string) => string): string {
+    const r = topRows(rows);
+    const s = r.top.map((x) => `${name(x.key, x.label)} ${fmt.money(x.usage.cost_usd)}`).join(', ');
+    return r.more ? `${s}, ${t('pages.limits.timeline.more', { count: fmt.number(r.more) })}` : s;
+  }
 </script>
 
 <div class="timeline" bind:this={host} bind:clientWidth={width} role="group" aria-label={t('pages.limits.timeline.label')}>

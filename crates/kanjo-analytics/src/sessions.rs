@@ -317,11 +317,16 @@ pub(crate) fn cache_misses(c: &Connection, env: &Env, session: Option<&str>, lim
             Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, i64>(2)?, causes, r.get(4)?, r.get(5)?, r.get(6)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut changes = c.prepare("SELECT ts, kind, target FROM config_changes WHERE ts >= ?1 AND ts <= ?2 ORDER BY ts")?;
+    let mut changes = c.prepare(
+        "SELECT ts, kind, target FROM config_changes WHERE ts >= ?1 AND ts <= ?2
+           AND (project_id IS NULL OR project_id = ?3) AND (kind <> 'tools' OR target = ?4) ORDER BY ts, id",
+    )?;
     let mut out = Vec::with_capacity(rows.len());
     for (session_id, project, ts, causes, tools_added, tools_removed, system_char_delta) in rows {
         let correlated_changes = changes
-            .query_map([ts - CORRELATION_MS, ts], |r| Ok(ConfigChange { ts: r.get(0)?, kind: r.get(1)?, target: r.get(2)? }))?
+            .query_map(rusqlite::params![ts - CORRELATION_MS, ts, project, session_id], |r| {
+                Ok(ConfigChange { ts: r.get(0)?, kind: r.get(1)?, target: r.get(2)? })
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         out.push(CacheMiss {
             session_id,
@@ -351,7 +356,7 @@ pub fn top_turns(store: &Store, ctx: &Ctx, q: &Query) -> Result<Vec<Turn>> {
     let env = Env::load(store)?;
     let r = range(ctx, q, REPORT_DAYS)?;
     let mut params = vec![Value::Integer(r.from), Value::Integer(r.to)];
-    let filter = Filter::from_query(q).sql("r", false, &mut params);
+    let filter = Filter::from_query(q, &env).sql("r", false, &mut params);
     store.read(|c| turns(c, &env, &format!("r.ts >= ? AND r.ts < ?{filter}"), params, limit(q, 20, 1000)))
 }
 

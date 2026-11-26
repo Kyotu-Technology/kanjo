@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Budget, Project } from '../../lib/api/contract';
-  import { fmt, t, tk } from '../../lib/i18n/index.svelte';
+  import { fmt, i18n, t, tk } from '../../lib/i18n/index.svelte';
   import { api, cache, describeError } from '../../lib/stores/app.svelte';
   import { toasts } from '../../lib/stores/toast.svelte';
   import Button from '../../lib/ui/Button.svelte';
@@ -53,6 +53,7 @@
     }
   }
 
+  const wholeAmount = (usd: number) => Number.isInteger(Math.round(usd * (i18n.currency.usd_rate > 0 ? i18n.currency.usd_rate : 1) * 100) / 100);
   const scopeText = (b: Budget) =>
     b.scope === 'global' ? t('pages.alerts.budget.scope_global') : tk(`pages.alerts.budget.scope_${b.scope}`, { name: b.scope_label ?? b.scope_value ?? '' });
   const stateIcon = (s: Budget['state']) => (s === 'ok' ? 'check' : s === 'warning' ? 'warning' : 'critical');
@@ -89,7 +90,7 @@
           </p>
           <div class="amounts">
             <Money usd={b.spent_usd} confidence="lower_bound" size="lg" />
-            <span class="of">{t('pages.alerts.spent_of', { spent: '', amount: fmt.money(b.amount_usd) }).trim()}</span>
+            <span class="of">{t('pages.alerts.spent_of', { spent: '', amount: fmt.money(b.amount_usd, { digits: wholeAmount(b.amount_usd) ? 0 : 2 }) }).trim()}</span>
           </div>
           <div
             class="track"
