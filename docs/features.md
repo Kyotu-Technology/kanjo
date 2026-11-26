@@ -4,7 +4,7 @@ This page describes what the dashboard and the command line show, how far each f
 
 Kanjo is an independent open-source project published by Kyotu Technology, not a product of Anthropic. "Claude" and "Claude Code" are Anthropic's names for its products.
 
-A developer on a Pro or Max subscription, or on API billing directly or through a gateway, wants to know whether today's work will run into a limit. Someone in finance or operations wants to know what Claude Code costs and whether the plan is the right one. The dashboard is organised around those questions. It is available in English and Polish, with light and dark themes and a mobile layout.
+A developer on a Pro, Max or Ultra subscription, on a Team seat, or on API billing directly or through a gateway, wants to know whether today's work will run into a limit. Someone in finance or operations wants to know what Claude Code costs and whether the plan is the right one. The dashboard is organised around those questions. It is available in English and Polish, with light and dark themes and a mobile layout.
 
 ## When will I hit my limit?
 
@@ -22,7 +22,7 @@ Every request in Claude Code's transcripts is priced at API list prices, so you 
 
 ## Is our plan the right one?
 
-Kanjo compares the API-equivalent value of your usage with the price of your subscription (you choose the plan and can enter what you actually pay). It then suggests keeping the plan, moving up a tier because you keep reaching the limits, moving down because the limits are rarely used, or switching to API billing because the work would cost less there.
+Kanjo compares the API-equivalent value of your usage with the price of your subscription (you choose the plan and can enter what you actually pay). It then suggests keeping the plan, moving up a tier because you keep reaching the limits, moving down because the limits are rarely used, or switching to API billing because the work would cost less there. The tiers are Pro, Max and Ultra for an individual subscription and the Standard and Premium seats of the Team plan. Kanjo starts from the plan's monthly list price, per seat for Team; Enterprise and custom plans have no list price in Kanjo, so enter what you pay.
 
 ## Where are we wasting money?
 
@@ -59,7 +59,7 @@ Every figure in Kanjo carries one of three labels, in the dashboard and in the c
 
 **Lower bounds** (shown as "At least") are costs summed from the transcripts at API list prices. The transcripts are the only record of individual requests, but they can miss some (retries or interrupted responses, for example), so the real figure is at least the one shown. A model that is missing from the price table is never counted as free and never given a guessed price: its requests are counted as unpriced and the dashboard says so.
 
-Two more things are worth knowing. API list prices are what the work would cost on pay-as-you-go billing; on a subscription you pay the plan price, which is why Kanjo shows both. And the limit percentages only exist when Claude Code sends them to the status line, which it does for Pro and Max subscriptions (and behind some gateways), after the first response of a session and while a session runs. Without the status line installed, Kanjo can only estimate them.
+Two more things are worth knowing. API list prices are what the work would cost on pay-as-you-go billing; on a subscription you pay the plan price, which is why Kanjo shows both. And the limit percentages only exist when Claude Code sends them to the status line, which its documentation says it does for Pro, Max and Ultra subscriptions and behind a Claude apps gateway that sets a spend limit, after the first response of a session and while a session runs. A verified Ultra account has no 5-hour limit, only the weekly one, so on Ultra Kanjo shows the weekly limit alone, makes no 5-hour estimate and judges the plan by the weekly peak. On Max, Ultra and Team Premium seats, Fable models may use at most half of the weekly limit; the status line has no separate reading for that cap, so Kanjo does not show it. Without the status line installed, Kanjo can only estimate the 5-hour use from past blocks.
 
 ## How it works
 

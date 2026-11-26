@@ -420,7 +420,7 @@ async fn ui_shell_assets_and_headers() {
 async fn settings_round_trip_and_audit() {
     let fx = demo().await;
     let mut s: Settings = fx.get("/api/v1/settings").await;
-    s.plan.kind = PlanKind::Max5x;
+    s.plan.kind = PlanKind::Ultra;
     s.week_start = 6;
     s.privacy.redact_paths = !s.privacy.redact_paths;
     let r = fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await;

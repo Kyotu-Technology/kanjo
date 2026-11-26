@@ -49,7 +49,7 @@ pub fn populate_in(store: &Store, ctx: &Ctx, days: u32, seed: u64) -> Result<()>
     })?;
     let mut s = Settings::load(store)?;
     s.onboarding_done = true;
-    s.plan.kind = PlanKind::Max20x;
+    s.plan.kind = PlanKind::Max;
     s.privacy.session_titles = true;
     s.save(store)
 }
@@ -872,7 +872,7 @@ impl Gen<'_> {
             let first = self.ctx.day_shift(now, -(self.days - 1)) + 9 * HOUR_MS + 12 * MINUTE_MS;
             let entries = [
                 (first, "hooks.install", "statusline", serde_json::json!({"statusline": true, "session_hooks": true, "service": true})),
-                (first + 3 * MINUTE_MS, "settings.update", "plan", serde_json::json!({"plan": "max20x"})),
+                (first + 3 * MINUTE_MS, "settings.update", "plan", serde_json::json!({"plan": "max"})),
                 (now - 4 * DAY_MS, "export", "usage", serde_json::json!({"format": "csv", "group": "day"})),
                 (now - 2 * DAY_MS, "backup.create", "backup", serde_json::json!({"trigger": "manual"})),
             ];
@@ -1167,7 +1167,7 @@ mod tests {
         let near = spent / budgets[1].0 * 100.0;
         assert!((70.0..80.0).contains(&near), "client budget at {near}%");
         let settings = Settings::load(s).unwrap();
-        assert!(settings.onboarding_done && settings.plan.kind == PlanKind::Max20x);
+        assert!(settings.onboarding_done && settings.plan.kind == PlanKind::Max);
         assert!(crate::audit::verify(s).unwrap());
     }
 

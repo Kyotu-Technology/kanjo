@@ -190,7 +190,7 @@ export function defaultSettings(): Settings {
     language: 'auto',
     theme: 'system',
     week_start: 0,
-    plan: { kind: 'max20x', monthly_usd: null },
+    plan: { kind: 'max', monthly_usd: null },
     currency: { code: 'USD', usd_rate: 1 },
     alerts: {
       limit_thresholds: [80, 90, 95],

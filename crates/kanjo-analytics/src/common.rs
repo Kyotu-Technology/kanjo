@@ -1,5 +1,5 @@
 use kanjo_core::api::{Granularity, Query, Tokens, Usage};
-use kanjo_core::settings::Settings;
+use kanjo_core::settings::{PlanKind, Settings};
 use kanjo_core::store::write::alias;
 use kanjo_core::time::{hour_floor, HOUR_MS};
 use kanjo_core::{Ctx, Error, Result, Store};
@@ -21,6 +21,7 @@ pub(crate) const BURN_WINDOW_MIN: i64 = 60;
 /// What every read model needs besides the connection: the redaction switch and the project labels.
 pub(crate) struct Env {
     pub redact: bool,
+    pub plan: PlanKind,
     projects: HashMap<i64, ProjectLabel>,
 }
 
@@ -36,7 +37,7 @@ impl Env {
     pub fn load(store: &Store) -> Result<Env> {
         let settings = Settings::load(store)?;
         let projects = store.read(load_projects)?;
-        Ok(Env { redact: settings.privacy.redact_paths, projects })
+        Ok(Env { redact: settings.privacy.redact_paths, plan: settings.plan.kind, projects })
     }
 
     /// Display label of a project: its alias when path redaction is on.

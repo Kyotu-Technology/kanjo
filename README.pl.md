@@ -53,13 +53,13 @@ kanjo up      # podłącza Claude Code: statusline, hooki sesji, usługa w tle, 
 
 ## Na jakie pytania odpowiada Kanjo
 
-Nazwa pochodzi od japońskiego 勘定 (kanjō), czyli rachunku: tego, o który prosi się na koniec posiłku. Dashboard jest zbudowany wokół pytań, które zadaje programista na planie Pro, Max albo rozliczany za API, i tych, które zadaje osoba, która za to płaci. Działa po angielsku i po polsku, w jasnym i ciemnym motywie, także na telefonie.
+Nazwa pochodzi od japońskiego 勘定 (kanjō), czyli rachunku: tego, o który prosi się na koniec posiłku. Dashboard jest zbudowany wokół pytań, które zadaje programista na planie Pro, Max, Ultra lub Team albo rozliczany za API, i tych, które zadaje osoba, która za to płaci. Działa po angielsku i po polsku, w jasnym i ciemnym motywie, także na telefonie.
 
-**Kiedy skończy mi się limit?** Claude Code przekazuje do statusline oficjalne procenty limitu 5-godzinnego i 7-dniowego, a Kanjo zapisuje każdy odczyt. Na podstawie bieżącego tempa prognozuje, kiedy każdy z limitów się wyczerpie, pokazuje, kiedy się odnowi, i wylicza dzienny budżet do resetu tygodniowego. Dzięki temu zwalniasz już we wtorek, zamiast przekonać się o problemie w czwartek.
+**Kiedy skończy mi się limit?** Claude Code przekazuje do statusline oficjalne procenty limitu 5-godzinnego i 7-dniowego (zweryfikowane konto Ultra ma tylko limit tygodniowy), a Kanjo zapisuje każdy odczyt. Na podstawie bieżącego tempa prognozuje, kiedy każdy z limitów się wyczerpie, pokazuje, kiedy się odnowi, i wylicza dzienny budżet do resetu tygodniowego. Dzięki temu zwalniasz już we wtorek, zamiast przekonać się o problemie w czwartek.
 
 **Ile to kosztowało i na co poszło?** Każde zapytanie jest wyceniane po cenniku API: koszt dzisiaj, w tym tygodniu i w tym miesiącu, w podziale na projekty, modele, subagentów, skille, serwery MCP, narzędzia, gałęzie gita, źródła zapytań i klientów. Porównanie okresów wyjaśnia, co urosło od zeszłego tygodnia albo miesiąca.
 
-**Czy mamy dobry plan?** Kanjo porównuje wartość Twojego użycia po cenach API z ceną subskrypcji i radzi zostać przy obecnym planie, przejść poziom wyżej lub niżej albo przejść na rozliczenie za API.
+**Czy mamy dobry plan?** Kanjo porównuje wartość Twojego użycia po cenach API z ceną subskrypcji i radzi zostać przy obecnym planie, przejść poziom wyżej lub niżej (Pro, Max i Ultra albo stanowiska Standard i Premium w planie Team) albo przejść na rozliczenie za API.
 
 **Gdzie przepalamy pieniądze?** Strona Wskazówki pokazuje, ile wraca z cache promptów i dlaczego cache się zepsuł, podpowiada tańszy dobór modeli z szacowaną oszczędnością i wymienia sesje bliskie limitu kontekstu.
 

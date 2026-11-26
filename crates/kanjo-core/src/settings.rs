@@ -79,9 +79,14 @@ pub enum PlanKind {
     #[default]
     Unknown,
     Pro,
-    Max5x,
-    Max20x,
+    /// Five times Pro's usage every five hours and every week.
+    Max,
+    /// Ten times Pro's usage every week and no five-hour limit once the account is
+    /// verified. Formerly Max 20x.
+    Ultra,
+    /// Team plan, Standard seat.
     Team,
+    /// Team plan, Premium seat.
     TeamPremium,
     Enterprise,
     /// Pay-as-you-go API or cloud provider billing.
@@ -95,10 +100,10 @@ impl PlanKind {
     pub fn default_monthly_usd(&self) -> Option<f64> {
         match self {
             PlanKind::Pro => Some(20.0),
-            PlanKind::Max5x => Some(100.0),
-            PlanKind::Max20x => Some(200.0),
-            PlanKind::Team => Some(30.0),
-            PlanKind::TeamPremium => Some(150.0),
+            PlanKind::Max => Some(100.0),
+            PlanKind::Ultra => Some(200.0),
+            PlanKind::Team => Some(25.0),
+            PlanKind::TeamPremium => Some(125.0),
             PlanKind::Unknown | PlanKind::Enterprise | PlanKind::Api | PlanKind::Custom => None,
         }
     }
@@ -108,9 +113,32 @@ impl PlanKind {
 #[ts(export)]
 #[serde(default)]
 pub struct PlanSettings {
+    #[serde(with = "plan_kind_compat")]
+    #[ts(as = "PlanKind")]
     pub kind: PlanKind,
     /// What is actually paid per month, in USD. Falls back to the plan's list price.
     pub monthly_usd: Option<f64>,
+}
+
+/// Reads the names 0.1.0 saved before the rename: `max5x` is Max, `max20x` is Ultra.
+mod plan_kind_compat {
+    use super::PlanKind;
+    use serde::de::IntoDeserializer;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(kind: &PlanKind, s: S) -> Result<S::Ok, S::Error> {
+        kind.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<PlanKind, D::Error> {
+        let name = String::deserialize(d)?;
+        let name = match name.as_str() {
+            "max5x" => "max",
+            "max20x" => "ultra",
+            other => other,
+        };
+        PlanKind::deserialize(IntoDeserializer::<D::Error>::into_deserializer(name))
+    }
 }
 
 impl PlanSettings {
@@ -217,10 +245,21 @@ mod tests {
         let t = crate::testkit::TestStore::new();
         let mut s = Settings::load(&t.store).unwrap();
         assert!(!s.privacy.conversation_viewer && !s.privacy.session_titles);
-        s.plan.kind = PlanKind::Max20x;
+        s.plan.kind = PlanKind::Ultra;
         s.save(&t.store).unwrap();
         let again = Settings::load(&t.store).unwrap();
         assert_eq!(again, s);
         assert_eq!(again.plan.effective_monthly_usd(), Some(200.0));
+    }
+
+    #[test]
+    fn plan_names_saved_by_0_1_0_still_load() {
+        let t = crate::testkit::TestStore::new();
+        for (old, kind, new) in [("max5x", PlanKind::Max, "max"), ("max20x", PlanKind::Ultra, "ultra")] {
+            t.store.write(|tx| set(tx, KEY, &serde_json::json!({ "plan": { "kind": old, "monthly_usd": null } }))).unwrap();
+            let s = Settings::load(&t.store).unwrap();
+            assert_eq!(s.plan.kind, kind);
+            assert_eq!(serde_json::to_value(&s.plan).unwrap()["kind"], new);
+        }
     }
 }

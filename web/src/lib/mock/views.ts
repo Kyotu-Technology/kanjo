@@ -343,7 +343,7 @@ export function limits(ds: Dataset): Limits {
   const active = blocks.find((b) => b.is_active) ?? null;
   if (!ds.hooks.statusline_installed) {
     const past = blocks.filter((b) => !b.is_active).map((b) => b.usage.cost_usd).sort((a, b) => a - b);
-    if (past.length < 5) return { five_hour: null, seven_day: null, spend: null, estimate: null };
+    if (past.length < 5 || ds.settings.plan.kind === 'ultra') return { five_hour: null, seven_day: null, spend: null, estimate: null };
     const p90 = past[Math.min(past.length - 1, Math.floor(past.length * 0.9))];
     const cur = active?.usage.cost_usd ?? 0;
     return {
@@ -820,7 +820,11 @@ export function compare(ds: Dataset, q: Q): Comparison {
 
 // --------------------------------------------------------------------- plan
 
-const PLAN_PRICE: Record<string, number | null> = { pro: 20, max5x: 100, max20x: 200, team: 30, team_premium: 150 };
+const PLAN_PRICE: Record<string, number | null> = { pro: 20, max: 100, ultra: 200, team: 25, team_premium: 125 };
+const LADDERS: NonNullable<PlanFit['target']>[][] = [
+  ['pro', 'max', 'ultra'],
+  ['team', 'team_premium'],
+];
 
 export function planFit(ds: Dataset): PlanFit {
   const now = ds.clock();
@@ -849,9 +853,11 @@ export function planFit(ds: Dataset): PlanFit {
     reason = 'no_history';
   } else if (near >= 6) {
     reason = 'frequent_limit_hits';
-    if (kind !== 'max20x') {
+    const tiers = LADDERS.find((l) => l.includes(kind));
+    const next = tiers?.[tiers.indexOf(kind) + 1];
+    if (next) {
       action = 'upgrade';
-      target = kind === 'max5x' ? 'max20x' : 'max5x';
+      target = next;
     }
   } else if (sub !== null && api < sub * 0.6) {
     action = 'downgrade';

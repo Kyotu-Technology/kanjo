@@ -53,13 +53,13 @@ kanjo up      # connect Claude Code: status line, session hooks, background serv
 
 ## What Kanjo answers
 
-The name comes from the Japanese 勘定 (kanjō), the reckoning: the bill you ask for at the end of a meal. The dashboard is built around the questions a developer on a Pro, Max or API plan asks, and the ones the person paying for it asks. It is in English and Polish, with light and dark themes and a mobile layout.
+The name comes from the Japanese 勘定 (kanjō), the reckoning: the bill you ask for at the end of a meal. The dashboard is built around the questions a developer on a Pro, Max, Ultra or Team plan or on API billing asks, and the ones the person paying for it asks. It is in English and Polish, with light and dark themes and a mobile layout.
 
-**When will I hit my limit?** Claude Code reports the official 5-hour and 7-day percentages to its status line, and Kanjo records every reading. From the recent pace it forecasts when each limit runs out, shows when it resets and works out a daily budget until the weekly reset, so you slow down on Tuesday instead of finding out on Thursday.
+**When will I hit my limit?** Claude Code reports the official 5-hour and 7-day percentages to its status line (a verified Ultra account has only the weekly limit), and Kanjo records every reading. From the recent pace it forecasts when each limit runs out, shows when it resets and works out a daily budget until the weekly reset, so you slow down on Tuesday instead of finding out on Thursday.
 
 **What did this cost, and where did it go?** Every request is priced at API list prices: cost today, this week and this month, broken down by project, model, subagent, skill, MCP server, tool, git branch, request source and client. A period comparison explains what grew since last week or last month.
 
-**Is our plan the right one?** Kanjo compares the API-equivalent value of your usage with what your subscription costs and suggests keeping the plan, moving up or down a tier, or switching to API billing.
+**Is our plan the right one?** Kanjo compares the API-equivalent value of your usage with what your subscription costs and suggests keeping the plan, moving up or down a tier (Pro, Max and Ultra, or the Standard and Premium seats of the Team plan), or switching to API billing.
 
 **Where are we wasting money?** The Insights page shows how much comes back from the prompt cache and why it broke, suggests a cheaper model mix with an estimated saving, and lists sessions close to their context limit.
 

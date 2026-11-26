@@ -14,11 +14,12 @@ use kanjo_core::{Ctx, Result, Store};
 /// `UPGRADE_WEEKLY_PCT` -> Upgrade to the next tier (`frequent_limit_hits`; Keep on
 /// the top tier or a plan without tiers); weekly peak under `DOWNGRADE_WEEKLY_PCT` and
 /// 5-hour peak under `DOWNGRADE_FIVE_HOUR_PCT` on a plan with a cheaper tier ->
-/// Downgrade (`low_utilisation`); API-equivalent cost below the subscription price ->
+/// Downgrade (`low_utilisation`; on Ultra, which has no 5-hour limit once the account
+/// is verified, a missing 5-hour peak counts as low); API-equivalent cost below the subscription price ->
 /// Downgrade to API billing (`api_cheaper`); otherwise Keep (`within_plan`).
 /// With less than `LOOKBACK_DAYS` of history the API-equivalent cost is scaled to a
 /// `LOOKBACK_DAYS` pace for the `api_cheaper` test and for `roi`.
-/// Tier order: Pro < Max5x < Max20x.
+/// Tier order: Pro < Max < Ultra, and Team Standard < Team Premium for seats.
 pub mod thresholds {
     pub const LOOKBACK_DAYS: i64 = 30;
     pub const MIN_HISTORY_DAYS: i64 = 7;
@@ -32,11 +33,12 @@ pub mod thresholds {
 
 use thresholds::*;
 
-const TIERS: [PlanKind; 3] = [PlanKind::Pro, PlanKind::Max5x, PlanKind::Max20x];
+const LADDERS: [&[PlanKind]; 2] = [&[PlanKind::Pro, PlanKind::Max, PlanKind::Ultra], &[PlanKind::Team, PlanKind::TeamPremium]];
 
 fn tier_shift(kind: PlanKind, delta: isize) -> Option<PlanKind> {
-    let i = TIERS.iter().position(|t| *t == kind)? as isize + delta;
-    (0..TIERS.len() as isize).contains(&i).then(|| TIERS[i as usize])
+    let tiers = LADDERS.iter().find(|l| l.contains(&kind))?;
+    let i = tiers.iter().position(|t| *t == kind)? as isize + delta;
+    (0..tiers.len() as isize).contains(&i).then(|| tiers[i as usize])
 }
 
 /// How well the chosen plan fits the last 30 days of use, with the API-equivalent
@@ -73,8 +75,11 @@ pub fn plan_fit(store: &Store, ctx: &Ctx) -> Result<PlanFit> {
         let span = (now - first.unwrap_or(from).max(from)).max(DAY_MS);
         let api_pace = api * (LOOKBACK_DAYS * DAY_MS) as f64 / span as f64;
         let hot = blocks_near_limit >= UPGRADE_MIN_HOT_WINDOWS || max_seven_day_pct.is_some_and(|p| p >= UPGRADE_WEEKLY_PCT);
-        let low =
-            max_seven_day_pct.is_some_and(|p| p < DOWNGRADE_WEEKLY_PCT) && max_five_hour_pct.is_some_and(|p| p < DOWNGRADE_FIVE_HOUR_PCT);
+        let five_hour_low = match max_five_hour_pct {
+            Some(p) => p < DOWNGRADE_FIVE_HOUR_PCT,
+            None => plan.kind == PlanKind::Ultra,
+        };
+        let low = max_seven_day_pct.is_some_and(|p| p < DOWNGRADE_WEEKLY_PCT) && five_hour_low;
         let (action, target, reason) = if plan.kind == PlanKind::Unknown {
             (PlanAction::Unknown, None, "no_plan")
         } else if !history_ok {

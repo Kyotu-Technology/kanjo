@@ -2,6 +2,7 @@ use crate::blocks::{self, windows};
 use crate::common::{Env, Filter, Src};
 use kanjo_core::api::{Confidence, LimitEstimate, LimitPoint, LimitWindow, Limits, LimitsDetail, Query, SpendLimit, UsdPerPctPoint};
 use kanjo_core::limits::{self as lim, LimitKind, LimitSample, SAME_WINDOW_TOLERANCE_MS};
+use kanjo_core::settings::PlanKind;
 use kanjo_core::time::{DAY_MS, MINUTE_MS, SEVEN_DAYS_MS};
 use kanjo_core::{Ctx, Result, Store};
 use rusqlite::Connection;
@@ -19,7 +20,8 @@ const DETAIL_BLOCKS_MS: i64 = 7 * DAY_MS;
 
 /// Current subscription limits. A window whose reset has passed is omitted. Without a
 /// live five_hour reading, and with enough inferred blocks in the last 60 days, an
-/// estimate calibrated on the 90th percentile block cost is filled in.
+/// estimate calibrated on the 90th percentile block cost is filled in, except on Ultra,
+/// where a verified account has no 5-hour limit to estimate.
 pub fn limits(store: &Store, ctx: &Ctx) -> Result<Limits> {
     let env = Env::load(store)?;
     store.read(|c| limits_in(&Src::new(c)?, ctx, &env))
@@ -29,7 +31,7 @@ pub(crate) fn limits_in(src: &Src, ctx: &Ctx, env: &Env) -> Result<Limits> {
     let five_hour = window(src, ctx, LimitKind::FiveHour)?;
     let seven_day = window(src, ctx, LimitKind::SevenDay)?;
     let spend = spend(src.c, ctx)?;
-    let estimate = if five_hour.is_none() { estimate(src, ctx, env)? } else { None };
+    let estimate = if five_hour.is_none() && env.plan != PlanKind::Ultra { estimate(src, ctx, env)? } else { None };
     Ok(Limits { five_hour, seven_day, spend, estimate })
 }
 

@@ -232,6 +232,8 @@ fn limits_expired_stale_and_estimate() {
     assert_eq!(est.blocks_observed, 7);
     assert!(close(est.current_block_usd, cost(&cur)));
     assert!(est.p90_block_usd > 0.0 && close(est.current_block_pct, cost(&cur) / est.p90_block_usd * 100.0));
+    fx.settings(|s| s.plan.kind = PlanKind::Ultra);
+    assert!(an::limits(&fx.t.store, &ctx()).unwrap().estimate.is_none(), "Ultra has no 5-hour limit to estimate");
 
     let detail = an::limits_detail(&fx.t.store, &ctx(), &Query::default()).unwrap();
     assert_eq!(detail.history_5h.len(), 1);
@@ -425,7 +427,7 @@ fn plan_fit_recommendations() {
     let fx = Fx::new();
     let p = fx.project("alpha");
     assert_eq!(an::plan_fit(&fx.t.store, &ctx()).unwrap().reason, "no_plan");
-    fx.settings(|s| s.plan.kind = PlanKind::Max20x);
+    fx.settings(|s| s.plan.kind = PlanKind::Ultra);
     fx.add(p, "s", NOW - DAY_MS, OPUS, 1000, 100);
     let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
     assert_eq!((fit.action, fit.reason.as_str()), (PlanAction::Unknown, "no_history"));
@@ -438,7 +440,7 @@ fn plan_fit_recommendations() {
     }
     fx.sample(LimitKind::SevenDay, NOW - 2 * DAY_MS, 20.0, NOW + DAY_MS);
     let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
-    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Max5x), "low_utilisation"));
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Max), "low_utilisation"));
     assert_eq!(fit.max_seven_day_pct, Some(20.0));
 
     fx.settings(|s| s.plan.kind = PlanKind::Pro);
@@ -446,12 +448,12 @@ fn plan_fit_recommendations() {
         fx.sample(LimitKind::FiveHour, NOW - DAY_MS + i * 2 * H, 95.0, NOW - DAY_MS + i * 2 * H + H);
     }
     let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
-    assert_eq!((fit.action, fit.target, fit.blocks_near_limit), (PlanAction::Upgrade, Some(PlanKind::Max5x), 3));
+    assert_eq!((fit.action, fit.target, fit.blocks_near_limit), (PlanAction::Upgrade, Some(PlanKind::Max), 3));
 
     let fresh = Fx::new();
     let q = fresh.project("beta");
     fresh.add(q, "s", NOW - 20 * DAY_MS, OPUS, 1000, 100);
-    fresh.settings(|s| s.plan.kind = PlanKind::Max5x);
+    fresh.settings(|s| s.plan.kind = PlanKind::Max);
     let fit = an::plan_fit(&fresh.t.store, &ctx()).unwrap();
     assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Api), "api_cheaper"));
     assert!(fit.roi.unwrap() < 1.0);
@@ -463,7 +465,7 @@ fn plan_fit_scales_a_short_history_to_a_month() {
     let tokens = |usd: f64| (usd / usd_per_input).round() as i64;
     let heavy = Fx::new();
     let p = heavy.project("alpha");
-    heavy.settings(|s| s.plan.kind = PlanKind::Max20x);
+    heavy.settings(|s| s.plan.kind = PlanKind::Ultra);
     for d in 0..8 {
         heavy.add(p, "s", NOW - d * DAY_MS - 30 * M, OPUS, tokens(20.0), 0);
     }
@@ -475,12 +477,41 @@ fn plan_fit_scales_a_short_history_to_a_month() {
 
     let light = Fx::new();
     let p = light.project("alpha");
-    light.settings(|s| s.plan.kind = PlanKind::Max20x);
+    light.settings(|s| s.plan.kind = PlanKind::Ultra);
     for d in 0..8 {
         light.add(p, "s", NOW - d * DAY_MS - H, OPUS, tokens(2.0), 0);
     }
     let fit = an::plan_fit(&light.t.store, &ctx()).unwrap();
     assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Api), "api_cheaper"));
+}
+
+#[test]
+fn plan_fit_on_ultra_and_team_seats() {
+    let fx = Fx::new();
+    let p = fx.project("alpha");
+    fx.add(p, "s", NOW - 20 * DAY_MS, OPUS, 1000, 100);
+    fx.sample(LimitKind::SevenDay, NOW - 2 * DAY_MS, 20.0, NOW + DAY_MS);
+    fx.settings(|s| s.plan.kind = PlanKind::Ultra);
+    let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Max), "low_utilisation"));
+    assert_eq!(fit.max_five_hour_pct, None);
+    fx.settings(|s| s.plan.kind = PlanKind::Max);
+    assert_eq!(an::plan_fit(&fx.t.store, &ctx()).unwrap().reason, "api_cheaper", "Max has a 5-hour limit, so no reading is not low use");
+
+    fx.sample(LimitKind::FiveHour, NOW - 3 * DAY_MS, 30.0, NOW - 3 * DAY_MS + H);
+    fx.settings(|s| s.plan.kind = PlanKind::TeamPremium);
+    let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Downgrade, Some(PlanKind::Team), "low_utilisation"));
+
+    for i in 0..3 {
+        fx.sample(LimitKind::FiveHour, NOW - DAY_MS + i * 2 * H, 95.0, NOW - DAY_MS + i * 2 * H + H);
+    }
+    fx.settings(|s| s.plan.kind = PlanKind::Team);
+    let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Upgrade, Some(PlanKind::TeamPremium), "frequent_limit_hits"));
+    fx.settings(|s| s.plan.kind = PlanKind::TeamPremium);
+    let fit = an::plan_fit(&fx.t.store, &ctx()).unwrap();
+    assert_eq!((fit.action, fit.target, fit.reason.as_str()), (PlanAction::Keep, None, "frequent_limit_hits"));
 }
 
 #[test]
