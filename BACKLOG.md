@@ -16,13 +16,13 @@ Accepted work, in the order it should be done.
 
 ### K-032 Windows session with the published release
 Size: M.
-Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-005, K-069).
+Why: the Windows virtual machine run used the installer before its rework and the GNU build, not the published MSVC zip, and WinGet has not been tried; the same session shows whether the path that kanjo up records survives an upgrade (K-069).
 Done when: scripts/windows-vm-test.sh has run with the published MSVC zip and the reworked install.ps1, a winget install from a local manifest (written with komac or by hand) has run non-elevated and elevated with the recorded path noted, and docs/status.md states the results.
 
 ### K-069 Stable recorded path on Windows if the archive layout is not enough
 Size: S. Depends: K-032.
-Why: if the Windows session shows that the path kanjo up records still changes on winget upgrade, K-005 alone does not fix it.
-Done when: the recorded path is mapped to a stable one in Rust as K-004 does for Homebrew, with a test, or the session has shown it is not needed and the entry is deleted.
+Why: if the Windows session shows that the path kanjo up records still changes on winget upgrade, the unversioned archive layout alone does not fix it.
+Done when: the recorded path is mapped to a stable one in Rust as kanjo_setup does for the Homebrew prefix link, with a test, or the session has shown it is not needed and the entry is deleted.
 
 ### K-006 Create the tap repository
 Size: S.
@@ -56,7 +56,7 @@ Done when: gh attestation verify has run against the published release, the syst
 
 ### K-031 macOS session
 Size: M. Depends: K-006.
-Why: the published release has not been installed by hand on macOS, and the session shows whether K-004 is enough there.
+Why: the published release has not been installed by hand on macOS, and the session shows whether the mapping to the Homebrew prefix link is enough there.
 Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, a brew install from the tap has run with the recorded path noted, after v0.2.0 brew upgrade has kept that path, and docs/status.md states the results.
 
 ## Proposed
