@@ -1,6 +1,6 @@
 ---
 name: invariant-reviewer
-description: Read-only reviewer that checks a diff against Kanjo's non-negotiable rules (no prompt text stored, no outbound network, single write path, API shapes in one place, synthetic fixtures). Use before a pull request that touches the parser, the store, the server, dependencies or fixtures.
+description: Reviewer that edits nothing and checks a diff against Kanjo's non-negotiable rules (no prompt text stored, no outbound network, single write path, API shapes in one place, synthetic fixtures). Use before a pull request that touches the parser, the store, the server, dependencies or fixtures.
 tools: Read, Grep, Glob, Bash
 ---
 
