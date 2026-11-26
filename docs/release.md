@@ -1,6 +1,6 @@
 # Releases
 
-This document describes how a Kanjo release is built, what it contains, how to verify it and how reproducible it is. The workflow is `.github/workflows/release.yml`. It has not been executed yet: no release has been built, signed or published with it, and the macOS and Windows builds have never run, so everything below describes the workflow as defined, and the few steps that were tried locally on Linux say so. The verification snippets take the repository URL from the `REPO` variable of the cosign snippet, so a fork changes it there. The install commands and the installers name the repository directly: `REPO_URL` in `install.sh` and `$RepoUrl` in `install.ps1`.
+This document describes how a Kanjo release is built, what it contains, how to verify it and how reproducible it is. The workflow is `.github/workflows/release.yml`. It first ran for v0.1.0 and succeeded on that first run: all five targets were built on their native runners, packaged, signed and published as the [v0.1.0 release](https://github.com/Kyotu-Technology/kanjo/releases/tag/v0.1.0). No minisign key is configured, so that release has no `SHA256SUMS.minisig`. The few steps that were also tried locally on Linux say so. The verification snippets take the repository URL from the `REPO` variable of the cosign snippet, so a fork changes it there. The install commands and the installers name the repository directly: `REPO_URL` in `install.sh` and `$RepoUrl` in `install.ps1`.
 
 ## Cutting a release
 

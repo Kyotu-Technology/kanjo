@@ -20,6 +20,6 @@ Kanjo reads files that Claude Code writes on your machine. It needs no account, 
 
 **Retention and deletion on request.** Each kind of data has its own retention period, set in Settings and applied daily: by default request rows are kept for 400 days, hourly aggregates indefinitely, limit readings and the audit log for 400 days, alerts for 180 days and set-aside records for 90 days. `kanjo purge` deletes one project, one session, everything before a date, or everything; deleted history is not read in again by a later rescan.
 
-**Signed releases with an SBOM, as designed.** The release workflow builds from the tagged commit, signs `SHA256SUMS` with Sigstore cosign, and attaches build provenance attestations and a CycloneDX SBOM to every archive. It has not been executed yet; see [docs/release.md](release.md) and [SECURITY.md](../SECURITY.md).
+**Signed releases with an SBOM.** The release workflow builds from the tagged commit, signs `SHA256SUMS` with Sigstore cosign, and attaches build provenance attestations and a CycloneDX SBOM to every archive. The first release, v0.1.0, was built, signed and published this way; see [docs/release.md](release.md) and [SECURITY.md](../SECURITY.md).
 
 **ISO/IEC 27001.** Kanjo documents how its features map to ISO/IEC 27001:2022 Annex A controls to support an organisation's own ISMS; it is not a certification and makes no compliance claim on the organisation's behalf. See [docs/security/iso27001.md](security/iso27001.md).
