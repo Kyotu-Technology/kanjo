@@ -28,6 +28,14 @@ pub fn load_or_create(paths: &Paths) -> Result<String> {
     Err(Error::Other(format!("cannot create the access token {}", file.display())))
 }
 
+/// Replaces the token with a new random one. A running server keeps the
+/// token it read at start-up until it restarts.
+pub fn rotate(paths: &Paths) -> Result<()> {
+    paths.ensure_home()?;
+    let token = crate::random_hex(32)?;
+    kanjo_core::paths::write_private_atomic(&paths.token_file(), format!("{token}\n").as_bytes())
+}
+
 fn valid(t: &str) -> bool {
     t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -61,6 +69,22 @@ mod tests {
         std::fs::write(paths.token_file(), "short").unwrap();
         let b = load_or_create(&paths).unwrap();
         assert!(valid(&b) && b != a);
+    }
+
+    #[test]
+    fn rotate_replaces_the_token_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::at(dir.path().join("home"), dir.path().join("claude"));
+        rotate(&paths).unwrap();
+        let a = load_or_create(&paths).unwrap();
+        rotate(&paths).unwrap();
+        let b = load_or_create(&paths).unwrap();
+        assert!(valid(&a) && valid(&b) && a != b);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(paths.token_file()).unwrap().permissions().mode() & 0o777, 0o600);
+        }
     }
 
     #[test]

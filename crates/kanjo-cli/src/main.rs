@@ -13,7 +13,7 @@ mod setup;
 
 use app::{App, Global};
 use clap::{CommandFactory, Parser};
-use cli::{Cli, Command, RetentionAction};
+use cli::{Cli, Command, RetentionAction, TokenAction};
 use error::CliResult;
 use i18n::Lang;
 use std::process::ExitCode;
@@ -105,6 +105,7 @@ fn run(app: &mut App, command: Command) -> CliResult<()> {
         Command::Purge { target, yes } => data::purge(app, &target, yes),
         Command::Retention { action: RetentionAction::Apply } => data::retention_apply(app),
         Command::Audit { action } => data::audit(app, action.as_ref()),
+        Command::Token { action: TokenAction::Rotate } => setup::token_rotate(app),
         Command::Service { action } => setup::service(app, &action),
         Command::Uninstall { purge_data, yes, no_service } => setup::uninstall(app, purge_data, yes, no_service),
         Command::Statusline | Command::Hook | Command::Completions { .. } | Command::Demo { .. } => Ok(()),

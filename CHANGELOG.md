@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `kanjo token rotate` replaces the access token with a new random one and records the rotation in the audit log. A running server keeps accepting the old token, and the browsers signed in with it, until it restarts; the command says whether a server is running and how to restart it.
+
 ### Changed
 
 - Plans follow Anthropic's current line-up: Max 20x is now Ultra, the $100 plan is Max, and the Team plan's seats are Team Standard and Team Premium with their current list prices of $25 and $125 a month per seat, billed monthly. In the settings and plan-fit JSON the plan values `max5x` and `max20x` became `max` and `ultra`; settings saved by 0.1.0 are read as before.

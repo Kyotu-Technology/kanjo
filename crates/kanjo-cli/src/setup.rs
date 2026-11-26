@@ -1,5 +1,5 @@
 //! Commands that set Kanjo up on this machine or start the dashboard: up,
-//! serve, demo, open, service and uninstall.
+//! serve, demo, open, service, token rotate and uninstall.
 
 use crate::app::{out, App, Global};
 use crate::cli::ServiceAction;
@@ -633,6 +633,41 @@ pub fn service(app: &mut App, action: &ServiceAction) -> CliResult<()> {
             Ok(())
         }
     }
+}
+
+/// Writes a new access token. A running server read the old one at start-up
+/// and keeps accepting it, and the session cookies derived from it, until it
+/// restarts, so the text says whether one is running.
+pub fn token_rotate(app: &mut App) -> CliResult<()> {
+    let lang = app.lang;
+    app.store()?;
+    kanjo_ops::token::rotate(&app.paths)?;
+    let live = server_file::live(&app.paths);
+    app.audit("token.rotate", "access.token", json!({ "server_running": live.is_some(), "via": "cli" }));
+    out(&tr!(lang, "A new access token is in {}.", "Nowy token dostępu jest w pliku {}.", app.paths.token_file().display()));
+    out(&match live {
+        Some(rec) if rec.auth => tr!(
+            lang,
+            "The server running at {} (process {}) still accepts the old token, and every browser signed in with it, until it restarts. Restart it: \"kanjo service uninstall\" and then \"kanjo service install\" for the background service, or stop \"kanjo serve\" and start it again. Then sign in with \"kanjo open\".",
+            "Serwer działający pod adresem {} (proces {}) nadal przyjmuje stary token i każdą przeglądarkę nim zalogowaną, dopóki nie zostanie uruchomiony ponownie. Uruchom go ponownie: dla usługi w tle \"kanjo service uninstall\", a potem \"kanjo service install\", albo zatrzymaj \"kanjo serve\" i uruchom je jeszcze raz. Potem zaloguj się przez \"kanjo open\".",
+            rec.url,
+            rec.pid
+        ),
+        Some(rec) => tr!(
+            lang,
+            "The server running at {} (process {}) asks for no token (auth = \"none\" in config.toml); a server started with token authentication uses the new one.",
+            "Serwer działający pod adresem {} (proces {}) nie wymaga tokenu (auth = \"none\" w config.toml); serwer uruchomiony z uwierzytelnianiem tokenem użyje nowego.",
+            rec.url,
+            rec.pid
+        ),
+        None => tr!(
+            lang,
+            "No server is running for {}; the next one to start uses the new token, and browsers signed in before sign in again with \"kanjo open\".",
+            "Dla katalogu {} nie działa żaden serwer; następny uruchomiony użyje nowego tokenu, a wcześniej zalogowane przeglądarki trzeba zalogować ponownie przez \"kanjo open\".",
+            app.paths.home.display()
+        ),
+    });
+    Ok(())
 }
 
 fn safe_to_delete(paths: &Paths) -> bool {

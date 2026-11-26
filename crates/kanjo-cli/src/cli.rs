@@ -147,6 +147,11 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<AuditAction>,
     },
+    /// Replace the access token of the dashboard
+    Token {
+        #[command(subcommand)]
+        action: TokenAction,
+    },
     /// Manage the background service
     Service {
         #[command(subcommand)]
@@ -313,6 +318,12 @@ pub enum AuditAction {
     },
     /// Check that no entry was changed or removed
     Verify,
+}
+
+#[derive(Subcommand)]
+pub enum TokenAction {
+    /// Write a new access token; a running server uses it after a restart
+    Rotate,
 }
 
 #[derive(Subcommand)]

@@ -29,4 +29,4 @@ These are the limitations a user may run into:
 - Hourly totals are stored per UTC hour. In a time zone with a fractional offset, such as UTC+5:30 or UTC+5:45, a day or bucket edge built from them is approximate to the hour. Cost-spike detection reads individual requests and stays exact.
 - Kanjo writes UTF-8. Windows PowerShell 5.1 decodes the output of a program it captures or pipes with the console code page, so Polish letters in captured output come out wrong there unless that code page is UTF-8 (`chcp 65001`).
 - Browsers installed as Snap or Flatpak packages may be unable to read the sign-in page in the data directory (or, for the demo, in the temporary directory). Then `kanjo open` and `kanjo up` print the address after 20 seconds. This has not been tested with a real sandboxed browser.
-- There is no command to rotate the access token (see the [threat model](security/threat-model.md)).
+- `kanjo token rotate` replaces the access token, but a running server keeps accepting the old one until it restarts (see the [threat model](security/threat-model.md)).

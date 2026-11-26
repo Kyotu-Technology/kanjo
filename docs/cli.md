@@ -20,6 +20,7 @@ Every command accepts `--home DIR` (the data directory), `--claude-dir DIR` (Cla
 | `kanjo purge` | Delete stored data: `--project NAME`, `--session ID`, `--before DATE` or `--all` |
 | `kanjo retention apply` | Apply the retention settings now |
 | `kanjo audit list`, `audit verify` | Show the audit log, check its hash chain |
+| `kanjo token rotate` | Replace the access token. A running server keeps accepting the old token, and the browsers signed in with it, until it restarts; the command says whether one is running |
 | `kanjo service install`, `uninstall`, `status` | Manage the background service on its own |
 | `kanjo uninstall` | Remove Kanjo from Claude Code and stop the service. `--purge-data`, `--yes` |
 | `kanjo completions SHELL` | Shell completion for bash, zsh, fish, elvish or PowerShell |

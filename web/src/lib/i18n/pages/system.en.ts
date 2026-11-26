@@ -235,6 +235,7 @@ export default {
       service_install: 'Installed the background service',
       service_uninstall: 'Removed the background service',
       retention_apply: 'Daily cleanup',
+      token_rotate: 'Replaced the access token',
     },
   },
 };

@@ -91,3 +91,4 @@ Every entry has an actor, an action, a target and a JSON detail. Actors: `local`
 | `service.install` | CLI | the executable | |
 | `service.uninstall` | CLI | `service` | |
 | `retention.apply` | CLI, service | `retention` | `report`, `settings` |
+| `token.rotate` | CLI | `access.token` | `server_running` |

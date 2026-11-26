@@ -235,6 +235,7 @@ const pl: typeof en = {
       service_install: 'Zainstalowano usługę w tle',
       service_uninstall: 'Usunięto usługę w tle',
       retention_apply: 'Codzienne porządkowanie',
+      token_rotate: 'Wymieniono token dostępu',
     },
   },
 };

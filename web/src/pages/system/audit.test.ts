@@ -3,7 +3,7 @@ import en from '../../lib/i18n/en';
 import { actionKey, actorKey, actorUser, detailText } from './audit';
 
 test('every action the server and the CLI write has a label', () => {
-  const written = ['backup.create', 'backup.restore', 'data.purge', 'export', 'hooks.install', 'hooks.uninstall', 'pricing.import', 'pricing.reset', 'retention.apply', 'service.install', 'service.uninstall', 'settings.update', 'transcript.view'];
+  const written = ['backup.create', 'backup.restore', 'data.purge', 'export', 'hooks.install', 'hooks.uninstall', 'pricing.import', 'pricing.reset', 'retention.apply', 'service.install', 'service.uninstall', 'settings.update', 'token.rotate', 'transcript.view'];
   const labels = en.system.audit.actions as Record<string, string>;
   for (const a of written) expect(labels[actionKey(a)], a).toBeTruthy();
 });

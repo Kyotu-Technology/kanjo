@@ -69,11 +69,6 @@ Size: M. Depends: K-010.
 Why: the published release has not been installed by hand on macOS, and the session shows whether K-004 is enough there.
 Done when: install.sh, kanjo up, the LaunchAgent, the keychain and uninstall have run on macOS, a brew install from the tap has run with the recorded path noted, after v0.2.0 brew upgrade has kept that path, and docs/status.md states the results.
 
-### K-024 kanjo token rotate
-Size: M.
-Why: today a leaked access token is replaced only by deleting access.token and restarting the server.
-Done when: kanjo token rotate writes a new token, records an audit entry and tells the user to restart a running server, with English and Polish text, completions, tests and docs/cli.md, and the threat model and docs/status.md no longer state the limitation.
-
 ## Proposed
 
 Waiting for triage; same entry form. There are no proposed entries.

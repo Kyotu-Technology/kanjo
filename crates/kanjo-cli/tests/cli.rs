@@ -152,6 +152,18 @@ fn http_get(port: u16, path: &str) -> String {
     out
 }
 
+/// A GET on 127.0.0.1 with a bearer token; returns the raw response.
+#[cfg(feature = "server")]
+fn http_bearer(port: u16, path: &str, token: &str) -> String {
+    use std::io::Read;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n").unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    out
+}
+
 /// The path and query of a URL on 127.0.0.1.
 #[cfg(feature = "server")]
 fn path_of(url: &str) -> &str {
@@ -388,6 +400,54 @@ fn export_purge_backup_restore_pricing_and_audit() {
     for want in ["export", "data.purge", "backup.create", "backup.restore", "pricing.import", "pricing.reset", "retention.apply"] {
         assert!(actions.contains(&want), "{want} missing from {actions:?}");
     }
+}
+
+#[test]
+fn token_rotate_writes_a_new_token_and_says_what_a_running_server_does() {
+    let env = Env::new();
+    let token_file = env.home.join("access.token");
+    let refused = env.run(&["token", "rotate"]);
+    assert_eq!(refused.status.code(), Some(1), "without a database there is no audit log to record the rotation in");
+    assert!(!token_file.exists());
+
+    env.seed();
+    let said = ok(&env.run(&["token", "rotate"]));
+    assert!(said.contains("A new access token") && said.contains("No server is running"), "{said}");
+    let first = std::fs::read_to_string(&token_file).unwrap().trim().to_string();
+    assert!(first.len() == 64 && first.bytes().all(|b| b.is_ascii_hexdigit()), "{first}");
+    assert!(!said.contains(&first), "the token is never printed");
+    let pl = ok(&env.run(&["--lang", "pl", "token", "rotate"]));
+    assert!(pl.contains("Nowy token dostępu") && pl.contains("nie działa żaden serwer"), "{pl}");
+    let second = std::fs::read_to_string(&token_file).unwrap().trim().to_string();
+    assert_ne!(first, second);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&token_file).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(feature = "server")]
+    {
+        let port = free_port();
+        let (mut server, seen) =
+            spawn_until(env.cmd(&["serve", "--port", &port.to_string(), "--no-open"]), "Kanjo dashboard on", Duration::from_secs(60));
+        assert!(seen.contains("Kanjo dashboard on"), "{seen}");
+        let said = ok(&env.run(&["token", "rotate"]));
+        assert!(said.contains("still accepts the old token") && said.contains(&server.id().to_string()), "{said}");
+        let third = std::fs::read_to_string(&token_file).unwrap().trim().to_string();
+        assert!(http_bearer(port, "/api/v1/settings", &second).starts_with("HTTP/1.1 200"), "the running server keeps the old token");
+        assert!(http_bearer(port, "/api/v1/settings", &third).starts_with("HTTP/1.1 401"), "and learns the new one only at a restart");
+        let _ = server.kill();
+        let _ = server.wait();
+    }
+
+    let audit = ok(&env.run(&["audit", "list", "--limit", "50", "--json"]));
+    let entries: Value = serde_json::from_str(&audit).unwrap();
+    let rotations: Vec<&Value> = entries["items"].as_array().unwrap().iter().filter(|e| e["action"] == "token.rotate").collect();
+    assert_eq!(rotations.len(), if cfg!(feature = "server") { 3 } else { 2 }, "{audit}");
+    assert_eq!(rotations[0]["target"], "access.token");
+    assert_eq!(rotations[0]["detail"]["server_running"], cfg!(feature = "server"));
+    assert!(!audit.contains(&first) && !audit.contains(&second), "the audit log never holds a token");
 }
 
 #[test]
