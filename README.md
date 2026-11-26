@@ -3,7 +3,7 @@
 # Kanjo
 
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/kyotu/kanjo/actions/workflows/ci.yml/badge.svg)](https://github.com/kyotu/kanjo/actions/workflows/ci.yml)
+[![CI](https://github.com/Kyotu-Technology/kanjo/actions/workflows/ci.yml/badge.svg)](https://github.com/Kyotu-Technology/kanjo/actions/workflows/ci.yml)
 
 **An offline cost and limit monitor for Claude Code.** Kanjo tells you when you will hit your 5-hour and weekly limits, what this week cost, and where the money went: which project, model, subagent, skill, MCP server or tool. It is one program with a web dashboard built in, it runs on your own computer, and nothing it collects ever leaves that computer.
 
@@ -114,7 +114,7 @@ The scripts contact GitHub to download the release. Kanjo itself never does; wit
 You need Rust 1.91 or newer (the `rust-version` in `Cargo.toml`), a C compiler and Perl, because the database layer compiles SQLCipher and OpenSSL from source; on Windows that means the MSVC build tools and Strawberry Perl. The web UI needs Node.js and npm (CI uses Node 24).
 
 ```sh
-git clone https://github.com/kyotu/kanjo
+git clone https://github.com/Kyotu-Technology/kanjo
 cd kanjo
 (cd web && npm ci && npm run build)
 cargo build --release -p kanjo
@@ -270,7 +270,7 @@ Kanjo is at version 0.1.0 and no release has been tagged yet. This is what has b
 | macOS (Intel and Apple silicon) | Defined in CI and the release workflow | Release binaries for both architectures compile and link when cross-built with cargo-zigbuild (`scripts/cross-check.sh macos`); never executed on a Mac |
 | Windows x86_64 | Installed and run on Windows 11 in a virtual machine | `scripts/windows-vm-test.sh` installs a real Windows 11 (evaluation image, Windows PowerShell 5.1) and runs the whole path there: `install.ps1` from the packaged zip, `kanjo up` with the logon entry and the database key in the Windows credential store, the dashboard, the status line, live file watching, the reports and `kanjo uninstall`. `scripts/cross-check.sh windows` lints the workspace for Windows and runs the test suite under Wine. The binary tested was the `x86_64-pc-windows-gnu` cross-build; the MSVC build that the release workflow makes has not run yet |
 
-On no platform have the background service (`kanjo up` without `--no-service`, `kanjo service install`) and `kanjo uninstall` been run for real; that code is covered by tests that never call `systemctl`, `launchctl` or `reg`. The system keyring backends were tested only through a stand-in, and the manual runs kept the key in a key file. The CI workflow has not run yet, because the repository has not been published. The release workflow (signing, SBOMs, attestations) has never been executed, the network-namespace phase of the egress test has not run yet (it needs privileges that CI has), and the repository address `https://github.com/kyotu/kanjo` used in this README and in the install scripts is where the project is expected to live.
+On no platform have the background service (`kanjo up` without `--no-service`, `kanjo service install`) and `kanjo uninstall` been run for real; that code is covered by tests that never call `systemctl`, `launchctl` or `reg`. The system keyring backends were tested only through a stand-in, and the manual runs kept the key in a key file. The CI workflow has not run yet, because the repository has not been published. The release workflow (signing, SBOMs, attestations) has never been executed, the network-namespace phase of the egress test has not run yet (it needs privileges that CI has), and the repository address `https://github.com/Kyotu-Technology/kanjo` used in this README and in the install scripts is where the project is expected to live.
 
 **Known limitations** that a user may run into:
 

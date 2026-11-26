@@ -9,7 +9,7 @@ set -eu
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 INSTALLER="$REPO/install/install.sh"
 VERSION=9.9.9
-URL=https://github.com/kyotu/kanjo
+URL=https://github.com/Kyotu-Technology/kanjo
 IDENTITY="$URL/.github/workflows/release.yml@refs/tags/v$VERSION"
 ISSUER=https://token.actions.githubusercontent.com
 

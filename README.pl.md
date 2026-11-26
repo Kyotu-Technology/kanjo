@@ -3,7 +3,7 @@
 # Kanjo
 
 [![Licencja: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/kyotu/kanjo/actions/workflows/ci.yml/badge.svg)](https://github.com/kyotu/kanjo/actions/workflows/ci.yml)
+[![CI](https://github.com/Kyotu-Technology/kanjo/actions/workflows/ci.yml/badge.svg)](https://github.com/Kyotu-Technology/kanjo/actions/workflows/ci.yml)
 
 **Monitor kosztów i limitów Claude Code, który działa offline.** Kanjo mówi, kiedy skończy się limit 5-godzinny i tygodniowy, ile kosztował ten tydzień i na co poszły pieniądze: na który projekt, model, subagenta, skill, serwer MCP czy narzędzie. To jeden program z wbudowanym pulpitem w przeglądarce, działa na Twoim komputerze i nic, co zbiera, nie opuszcza tego komputera.
 
@@ -114,7 +114,7 @@ Skrypty łączą się z GitHubem, żeby pobrać wydanie. Samo Kanjo nigdy tego n
 Potrzebny jest Rust 1.91 lub nowszy (`rust-version` w `Cargo.toml`), kompilator C i Perl, bo warstwa bazy danych kompiluje SQLCipher i OpenSSL ze źródeł; na Windows oznacza to narzędzia MSVC i Strawberry Perl. Interfejs webowy wymaga Node.js i npm (CI używa Node 24).
 
 ```sh
-git clone https://github.com/kyotu/kanjo
+git clone https://github.com/Kyotu-Technology/kanjo
 cd kanjo
 (cd web && npm ci && npm run build)
 cargo build --release -p kanjo
@@ -270,7 +270,7 @@ Kanjo ma wersję 0.1.0 i nie ma jeszcze żadnego otagowanego wydania. Oto co zos
 | macOS (Intel i Apple silicon) | Zdefiniowane w CI i workflow wydań | Binarki release dla obu architektur kompilują się i linkują przy kompilacji skrośnej przez cargo-zigbuild (`scripts/cross-check.sh macos`); nigdy nie uruchomione na Macu |
 | Windows x86_64 | Zainstalowane i uruchomione na Windows 11 w maszynie wirtualnej | `scripts/windows-vm-test.sh` instaluje prawdziwy Windows 11 (obraz ewaluacyjny, Windows PowerShell 5.1) i przechodzi tam całą ścieżkę: `install.ps1` ze spakowanego zipa, `kanjo up` z wpisem autostartu i kluczem bazy w magazynie poświadczeń Windows, pulpit, pasek stanu, śledzenie plików na żywo, raporty i `kanjo uninstall`. `scripts/cross-check.sh windows` uruchamia lint workspace'u dla Windows i testy pod Wine. Testowana binarka to kompilacja skrośna `x86_64-pc-windows-gnu`; build MSVC, który robi workflow wydań, jeszcze się nie wykonał |
 
-Na żadnej platformie nie uruchomiono naprawdę usługi w tle (`kanjo up` bez `--no-service`, `kanjo service install`) ani `kanjo uninstall`; ten kod sprawdzają testy, które nigdy nie wywołują `systemctl`, `launchctl` ani `reg`. Obsługę systemowych pęków kluczy testowano tylko przez zastępczą implementację, a ręczne uruchomienia trzymały klucz w pliku. Workflow CI jeszcze nie był uruchamiany, bo repozytorium nie zostało opublikowane. Workflow wydań (podpisy, SBOM, atestacje) również nie był jeszcze uruchamiany, faza testu ruchu wychodzącego w przestrzeni nazw sieci jeszcze się nie odbyła (wymaga uprawnień, które ma CI), a adres repozytorium `https://github.com/kyotu/kanjo` użyty w tym README i w skryptach instalacyjnych to miejsce, w którym projekt ma się znaleźć.
+Na żadnej platformie nie uruchomiono naprawdę usługi w tle (`kanjo up` bez `--no-service`, `kanjo service install`) ani `kanjo uninstall`; ten kod sprawdzają testy, które nigdy nie wywołują `systemctl`, `launchctl` ani `reg`. Obsługę systemowych pęków kluczy testowano tylko przez zastępczą implementację, a ręczne uruchomienia trzymały klucz w pliku. Workflow CI jeszcze nie był uruchamiany, bo repozytorium nie zostało opublikowane. Workflow wydań (podpisy, SBOM, atestacje) również nie był jeszcze uruchamiany, faza testu ruchu wychodzącego w przestrzeni nazw sieci jeszcze się nie odbyła (wymaga uprawnień, które ma CI), a adres repozytorium `https://github.com/Kyotu-Technology/kanjo` użyty w tym README i w skryptach instalacyjnych to miejsce, w którym projekt ma się znaleźć.
 
 **Znane ograniczenia**, na które może trafić użytkownik:
 

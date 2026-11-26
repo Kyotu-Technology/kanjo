@@ -167,7 +167,7 @@ pub fn systemd_unit(exe: &Path, paths: &Paths) -> String {
     format!(
         "[Unit]\n\
          Description=Kanjo cost and limit monitor for Claude Code\n\
-         Documentation=https://github.com/kyotu/kanjo\n\
+         Documentation=https://github.com/Kyotu-Technology/kanjo\n\
          \n\
          [Service]\n\
          Type=simple\n\
