@@ -42,7 +42,7 @@ sh scripts/test-install.sh
 sh scripts/check-docs.sh --self-test
 ```
 
-**Documentation** (any `*.md`, including `CLAUDE.md`, `AGENTS.md` and `BACKLOG.md`):
+**Documentation** (any `*.md`, including `CLAUDE.md` and `AGENTS.md`):
 
 ```sh
 sh scripts/check-docs.sh

@@ -1,6 +1,6 @@
 # Decisions
 
-This page records the decisions that are in force and the reasons for them, one short entry each, so that a settled question is not reopened without a new reason. Plans and ideas are in [BACKLOG.md](../BACKLOG.md).
+This page records the decisions that are in force and the reasons for them, one short entry each, so that a settled question is not reopened without a new reason. Plans and ideas are GitHub issues.
 
 ## D-001 Notifications stay local (2026-11-26)
 
@@ -37,3 +37,9 @@ Consequences: `.github/dependabot.yml` ignores `@types/node` major updates; the 
 Context: `notify` 9, the file watcher of `kanjo-ingest`, depends on `xxhash-rust`, which is under the Boost Software License 1.0.
 Decision: `deny.toml` allows BSL-1.0 for `xxhash-rust` only. The licence is permissive, approved by the OSI, and does not require the notice in binary distributions.
 Consequences: any other crate under BSL-1.0 still fails `cargo deny check` until it gets its own exception with a reason.
+
+## D-007 Plans are GitHub issues, and pull requests land by auto-merge (2026-11-27)
+
+Context: the backlog was a file with no place for a work log, and with one maintainer the required approving review could only be bypassed, which bypassed the required checks as well.
+Decision: plans, ideas and their status are GitHub issues, with the label as the status. The ruleset of `main` requires no approval and allows only squash merges, and auto-merge is allowed, so a pull request is merged without the administrator bypass and GitHub signs the commit. Agents work only on `ready` issues opened by a member of the project and land with `scripts/issue.sh`, which merges only after every check has passed.
+Consequences: issue text is public input and cannot change the project rules. The review floor in `CLAUDE.md` is the only review, so an agent may not lower it. A pull request that changes agent configuration, workflows, installers, scripts or a dependency manifest is merged by the maintainer; the script enforces that against mistakes only, because the agent runs with the maintainer's rights.
