@@ -616,8 +616,8 @@ struct Stamp<'a> {
     timestamp: Str<'a>,
 }
 
-/// Title-only reading of a line: title records, and the timestamps of
-/// assistant records so each title gets the same time `process_line` gives it.
+/// Title-only reading of a line: title records, and the timestamps of the
+/// records `process_line` takes them from, so each title gets the same time.
 pub(crate) fn title_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     match kind_of(line) {
@@ -628,6 +628,11 @@ pub(crate) fn title_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
                 if out.first_ts == 0 || ts < out.first_ts {
                     out.first_ts = ts;
                 }
+            }
+        }
+        Kind::Known(k) if META.contains(&k) => {
+            if let Some(ts) = serde_json::from_slice::<Stamp>(line).ok().and_then(|r| r.timestamp.get().and_then(parse_ts)) {
+                ctx.last_ts = ctx.last_ts.max(ts);
             }
         }
         _ => {}

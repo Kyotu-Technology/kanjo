@@ -171,6 +171,29 @@ fn turning_titles_on_does_not_bring_back_the_title_of_a_purged_conversation() {
 }
 
 #[test]
+fn a_title_after_a_purge_is_dated_by_the_record_before_it_whatever_its_type() {
+    let e = env();
+    retention::purge(&e.store, &PurgeRequest { session: Some(A.into()), ..Default::default() }).unwrap();
+    let after = now_ms() + 2 * MINUTE_MS;
+    e.append(
+        &e.file(A),
+        &format!(
+            "{{\"type\":\"api-request\",\"id\":\"req_resumed\",\"querySource\":\"repl_main_thread\",\"timestamp\":\"{}\"}}\n{{\"type\":\"ai-title\",\"aiTitle\":\"Invented resumed title\",\"sessionId\":\"{A}\"}}\n{}",
+            iso(after),
+            assistant(A, "msg_A_after", after + MINUTE_MS)
+        ),
+    );
+    e.ing.scan().unwrap();
+    e.ing.set_store_titles(true);
+    e.ing.refresh_titles().unwrap();
+    assert_eq!(
+        e.q::<Option<String>>(&format!("SELECT title FROM sessions WHERE id = '{A}'")).as_deref(),
+        Some("Invented resumed title"),
+        "a title after the purge is dated by the record before it, whatever its type"
+    );
+}
+
+#[test]
 fn purging_before_a_date_keeps_that_history_out() {
     let e = env();
     let cut = 1_795_219_200_000; // 2026-11-21T00:00:00Z
