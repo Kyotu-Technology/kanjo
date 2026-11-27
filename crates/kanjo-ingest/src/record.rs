@@ -614,6 +614,16 @@ pub(crate) fn process_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
 struct Stamp<'a> {
     #[serde(borrow, default)]
     timestamp: Str<'a>,
+    #[serde(borrow, default)]
+    message: Option<StampMessage<'a>>,
+}
+
+#[derive(Deserialize)]
+struct StampMessage<'a> {
+    #[serde(borrow, default)]
+    model: Str<'a>,
+    #[serde(default)]
+    usage: Option<IgnoredAny>,
 }
 
 /// Title-only reading of a line: title records, and the timestamps of the
@@ -623,7 +633,13 @@ pub(crate) fn title_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
     match kind_of(line) {
         Kind::Known(k @ ("ai-title" | "custom-title")) => meta(k, line, ctx, out),
         Kind::Known("assistant") => {
-            if let Some(ts) = serde_json::from_slice::<Stamp>(line).ok().and_then(|r| r.timestamp.get().and_then(parse_ts)) {
+            let usage_ts = serde_json::from_slice::<Stamp>(line).ok().and_then(|r| {
+                let m = r.message?;
+                m.usage?;
+                (m.model.get()? != "<synthetic>").then_some(())?;
+                r.timestamp.get().and_then(parse_ts)
+            });
+            if let Some(ts) = usage_ts {
                 ctx.last_ts = ctx.last_ts.max(ts);
                 if out.first_ts == 0 || ts < out.first_ts {
                     out.first_ts = ts;

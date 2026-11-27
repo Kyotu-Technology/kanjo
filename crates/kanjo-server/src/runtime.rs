@@ -129,13 +129,15 @@ pub(crate) fn spawn_title_refresh(state: &AppState) {
     }
     let state = state.clone();
     tokio::spawn(async move {
-        let sessions = blocking(&state, "session title refresh", |inner| match &inner.ingestor {
-            Some(ing) => ing.refresh_titles(),
-            None => Ok(Vec::new()),
+        let refreshed = blocking(&state, "session title refresh", |inner| match &inner.ingestor {
+            Some(ing) => ing.refresh_titles().map(Some),
+            None => Ok(None),
         })
         .await
-        .unwrap_or_default();
-        state.publish(LiveEvent::Usage { requests: 0, cost_usd: 0.0, sessions });
+        .flatten();
+        if let Some(sessions) = refreshed {
+            state.publish(LiveEvent::Usage { requests: 0, cost_usd: 0.0, sessions });
+        }
     });
 }
 
