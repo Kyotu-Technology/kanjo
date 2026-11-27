@@ -825,7 +825,7 @@ impl Gen<'_> {
         }
         let path = |p: usize| format!("/home/dev/work/{}", PROJECTS[p].slug);
         for s in &self.sessions {
-            tx.execute("UPDATE sessions SET title = ?2 WHERE id = ?1", params![s.id, s.title])?;
+            write::set_session_title(tx, &s.id, &s.title, false)?;
         }
         for e in &self.events {
             tx.execute(

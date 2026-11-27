@@ -160,6 +160,17 @@ fn a_resumed_session_does_not_get_back_the_title_of_the_purged_conversation() {
 }
 
 #[test]
+fn turning_titles_on_does_not_bring_back_the_title_of_a_purged_conversation() {
+    let e = env();
+    retention::purge(&e.store, &PurgeRequest { session: Some(A.into()), ..Default::default() }).unwrap();
+    e.append(&e.file(A), &assistant(A, "msg_A_resumed", now_ms() + MINUTE_MS));
+    e.ing.scan().unwrap();
+    e.ing.set_store_titles(true);
+    e.ing.refresh_titles().unwrap();
+    assert_eq!(e.q::<Option<String>>(&format!("SELECT title FROM sessions WHERE id = '{A}'")), None);
+}
+
+#[test]
 fn purging_before_a_date_keeps_that_history_out() {
     let e = env();
     let cut = 1_795_219_200_000; // 2026-11-21T00:00:00Z
@@ -233,6 +244,18 @@ fn turning_titles_off_clears_the_stored_ones() {
     e.ing.rescan_from_scratch().unwrap();
     e.ing.backfill(&|_| {}).unwrap();
     assert_eq!(e.q::<i64>(stored), 0, "a spooled name or a re-read ai-title is ignored while titles are off");
+    assert_eq!(e.q::<i64>("SELECT count(*) FROM sessions WHERE title_user != 0"), 0);
+    assert_eq!(e.q::<i64>("SELECT count(*) FROM settings WHERE key = 'titles:rescanned'"), 0);
+    e.ing.set_store_titles(true);
+    assert!(e.ing.refresh_titles().unwrap().contains(&A.to_string()), "turning titles on again reads them again");
+}
+
+#[test]
+fn starting_with_titles_off_forgets_the_title_rescan() {
+    let e = env();
+    e.store.write(|tx| kanjo_core::settings::set(tx, "titles:rescanned", &true)).unwrap();
+    Ingestor::new(e.store.clone(), e.paths.clone()).unwrap();
+    assert_eq!(e.q::<i64>("SELECT count(*) FROM settings WHERE key = 'titles:rescanned'"), 0);
 }
 
 #[test]

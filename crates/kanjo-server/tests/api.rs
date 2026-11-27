@@ -858,6 +858,46 @@ async fn turning_session_titles_off_forgets_the_stored_ones() {
 }
 
 #[tokio::test]
+async fn turning_session_titles_on_fills_titles_of_sessions_already_imported() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = options(dir.path(), false);
+    opts.config.server.port = 0;
+    opts.config.storage.encryption = EncryptionMode::Off;
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects");
+    copy_dir(&fixtures, &opts.paths.claude_projects());
+    let paths = opts.paths.clone();
+    let server = start(opts).await.unwrap();
+    let token = kanjo_ops::token::load_or_create(&paths).unwrap();
+    let fx = Fx { _dir: tempfile::tempdir().unwrap(), state: server.state().clone(), app: router(server.state().clone()), token };
+    fx.state.set_port(PORT);
+    let list = || async { fx.get::<SessionList>("/api/v1/sessions?limit=100&from=0").await.items };
+    for _ in 0..100 {
+        let sys: SystemInfo = fx.get("/api/v1/system").await;
+        if !sys.ingest.backfill_running && !list().await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(list().await.iter().all(|s| s.title.is_none()), "titles are off by default");
+
+    let mut s: Settings = fx.get("/api/v1/settings").await;
+    s.privacy.session_titles = true;
+    assert_eq!(fx.call("PUT", "/api/v1/settings", Some(serde_json::to_value(&s).unwrap())).await.status, StatusCode::OK);
+    let mut stored = Vec::new();
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        stored = list().await.into_iter().filter_map(|s| s.title).collect();
+        if !stored.is_empty() {
+            break;
+        }
+    }
+    assert!(stored.iter().any(|t| t.contains("invented checkout")), "{stored:?}");
+
+    fx.state.set_port(server.local_addr().port());
+    tokio::time::timeout(Duration::from_secs(15), server.shutdown()).await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn a_port_in_use_reports_that_kanjo_is_probably_running() {
     let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let dir = tempfile::tempdir().unwrap();

@@ -274,7 +274,7 @@ fn apply_statusline(tx: &Connection, r: &StatuslineRecord, titles: bool, now: i6
         ])?;
     }
     if let Some(name) = session_name {
-        kanjo_core::store::write::set_session_title(tx, &r.session_id, Some(name))?;
+        kanjo_core::store::write::set_session_title(tx, &r.session_id, name, true)?;
     }
     Ok(())
 }

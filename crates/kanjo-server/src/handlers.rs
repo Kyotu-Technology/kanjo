@@ -273,15 +273,19 @@ fn changed_sections(old: &Settings, new: &Settings) -> Vec<String> {
 
 async fn put_settings(State(s): State<AppState>, caller: Caller, ApiJson(new): ApiJson<Settings>) -> ApiResult<Settings> {
     validate_settings(&new)?;
-    s.db(move |i, _| {
-        let old = Settings::load(&i.store)?;
-        new.save(&i.store)?;
-        i.apply_settings(&new)?;
-        audit(i, &caller, "settings.update", "settings", json!({ "changed": changed_sections(&old, &new) }))?;
-        Ok(Settings::load(&i.store)?)
-    })
-    .await
-    .map(Json)
+    let saved = s
+        .db(move |i, _| {
+            let old = Settings::load(&i.store)?;
+            new.save(&i.store)?;
+            i.apply_settings(&new)?;
+            audit(i, &caller, "settings.update", "settings", json!({ "changed": changed_sections(&old, &new) }))?;
+            Ok(Settings::load(&i.store)?)
+        })
+        .await?;
+    if saved.privacy.session_titles {
+        crate::runtime::spawn_title_refresh(&s);
+    }
+    Ok(Json(saved))
 }
 
 fn quarantine_rows(c: &rusqlite::Connection) -> kanjo_core::Result<Vec<QuarantineRow>> {

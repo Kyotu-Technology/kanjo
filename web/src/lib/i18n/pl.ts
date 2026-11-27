@@ -267,6 +267,7 @@ const pl: Messages = {
       cost: 'Koszt',
       context: 'Zajęty kontekst',
       untitled: 'Sesja bez tytułu',
+      untitled_off: 'Bez tytułu: tytuły są wyłączone',
       all: 'Wszystkie sesje',
     },
     alerts: {
@@ -581,6 +582,9 @@ const pl: Messages = {
       title: 'Sesje',
       lede: 'Każda sesja Claude Code, jej koszt i wykorzystanie pamięci podręcznej.',
       search: 'Filtruj po projekcie, gałęzi lub tytule',
+      titles_off_title: 'Tytuły sesji są wyłączone',
+      titles_off_body: 'Kanjo nie zapisuje tytułów sesji, dopóki ich nie włączysz. Po włączeniu odczyta też tytuły sesji już zaimportowanych.',
+      titles_off_action: 'Zmień w ustawieniach',
       count: plural({ one: '{count} sesja', few: '{count} sesje', many: '{count} sesji', other: '{count} sesji' }),
       active: 'Trwa',
       active_help: 'Była aktywna w ciągu ostatnich 10 minut.',

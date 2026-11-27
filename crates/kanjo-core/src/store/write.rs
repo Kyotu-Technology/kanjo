@@ -121,9 +121,22 @@ fn exec(tx: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<usi
     Ok(tx.prepare_cached(sql)?.execute(params)?)
 }
 
-/// Sets or clears a session's title. Callers decide whether titles may be stored at all.
-pub fn set_session_title(tx: &Connection, session_id: &str, title: Option<&str>) -> Result<()> {
-    exec(tx, "UPDATE sessions SET title = ?2 WHERE id = ?1 AND title IS NOT ?2", params![session_id, title])?;
+/// Sets a session's title. A title the user chose (`by_user`, from `/rename`) is
+/// not replaced by a generated one. Callers decide whether titles may be stored
+/// at all. Returns whether the stored title changed.
+pub fn set_session_title(tx: &Connection, session_id: &str, title: &str, by_user: bool) -> Result<bool> {
+    let changed = exec(
+        tx,
+        "UPDATE sessions SET title = ?2, title_user = ?3
+         WHERE id = ?1 AND (?3 OR title_user = 0) AND (title IS NOT ?2 OR title_user != ?3)",
+        params![session_id, title, by_user],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Forgets every stored session title (titles were turned off).
+pub fn clear_session_titles(tx: &Connection) -> Result<()> {
+    exec(tx, "UPDATE sessions SET title = NULL, title_user = 0 WHERE title IS NOT NULL OR title_user != 0", [])?;
     Ok(())
 }
 

@@ -13,6 +13,7 @@ mod discover;
 mod pipeline;
 mod record;
 mod spool_drain;
+mod titles;
 mod toplevel;
 mod transcript;
 mod watch;
@@ -74,6 +75,8 @@ pub struct Ingestor {
     titles: AtomicBool,
     /// Turning titles off could not clear the stored ones; retried on the next pass.
     titles_dirty: AtomicBool,
+    /// The title rescan marker was checked since titles were last switched.
+    titles_checked: AtomicBool,
     status: Mutex<IngestStatus>,
     refs: Mutex<HashMap<PathBuf, QueryRefs>>,
     pending_meta: Mutex<HashMap<String, pipeline::PendingMeta>>,
@@ -95,10 +98,9 @@ fn load_prices(c: &rusqlite::Connection) -> Result<Priced> {
 }
 
 fn clear_titles(tx: &rusqlite::Connection) -> Result<()> {
-    tx.execute_batch(
-        "UPDATE sessions SET title = NULL WHERE title IS NOT NULL;
-         UPDATE session_status SET session_name = NULL WHERE session_name IS NOT NULL;",
-    )?;
+    kanjo_core::store::write::clear_session_titles(tx)?;
+    tx.execute("UPDATE session_status SET session_name = NULL WHERE session_name IS NOT NULL", [])?;
+    tx.execute("DELETE FROM settings WHERE key = ?1", [titles::RESCANNED])?;
     Ok(())
 }
 
@@ -111,9 +113,10 @@ impl Ingestor {
         if !titles {
             let stored: bool = store.read(|c| {
                 Ok(c.query_row(
-                    "SELECT EXISTS (SELECT 1 FROM sessions WHERE title IS NOT NULL)
-                        OR EXISTS (SELECT 1 FROM session_status WHERE session_name IS NOT NULL)",
-                    [],
+                    "SELECT EXISTS (SELECT 1 FROM sessions WHERE title IS NOT NULL OR title_user != 0)
+                        OR EXISTS (SELECT 1 FROM session_status WHERE session_name IS NOT NULL)
+                        OR EXISTS (SELECT 1 FROM settings WHERE key = ?1)",
+                    [titles::RESCANNED],
                     |r| r.get(0),
                 )?)
             })?;
@@ -128,6 +131,7 @@ impl Ingestor {
             prices: RwLock::new(prices),
             titles: AtomicBool::new(titles),
             titles_dirty: AtomicBool::new(false),
+            titles_checked: AtomicBool::new(false),
             status: Mutex::new(IngestStatus { requests_stored: stored, ..IngestStatus::default() }),
             refs: Mutex::new(HashMap::new()),
             pending_meta: Mutex::new(HashMap::new()),
@@ -146,13 +150,16 @@ impl Ingestor {
         }
     }
 
-    /// Whether session titles (from `ai-title` records and the statusline) are
-    /// stored. Off by default. Turning them off also clears every stored title
-    /// (`sessions.title`, `session_status.session_name`); this writes to the
-    /// database, so call it off the async runtime. A failed clear is logged and
-    /// retried on the next pass.
+    /// Whether session titles (from `ai-title` and `custom-title` records and
+    /// the statusline) are stored. Off by default. Turning them on makes the
+    /// next pass (or [`Ingestor::refresh_titles`]) read the titles of
+    /// transcripts imported while they were off. Turning them off also clears
+    /// every stored title (`sessions.title`, `session_status.session_name`);
+    /// this writes to the database, so call it off the async runtime. A failed
+    /// clear is logged and retried on the next pass.
     pub fn set_store_titles(&self, on: bool) {
         self.titles.store(on, Ordering::SeqCst);
+        self.titles_checked.store(false, Ordering::SeqCst);
         if !on {
             for meta in lock(&self.pending_meta).values_mut() {
                 meta.title = None;

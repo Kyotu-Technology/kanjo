@@ -7,6 +7,12 @@ All notable changes to this project are documented in this file. The format foll
 ### Added
 
 - Kanjo can be installed with Homebrew on macOS and Linux: `brew install kyotu-technology/tap/kanjo` installs the prebuilt release binary, whose build provenance the tap verifies, from the Kyotu Technology tap. After `brew upgrade kanjo`, run `kanjo service install` to restart the background service on the new version.
+- A session renamed with `/rename` shows that name, which wins over the title Claude Code generates.
+- While session titles are off, the Sessions page says so and links to the setting, and untitled sessions say that titles are off.
+
+### Fixed
+
+- Turning session titles on now fills the titles of sessions imported while they were off, instead of only those of sessions active afterwards. The first start after upgrading reads them once if titles are already on. The database schema moves to version 2, so a backup made by this version cannot be restored by 0.2.0.
 
 ## [0.2.0] - 2026-11-26
 
