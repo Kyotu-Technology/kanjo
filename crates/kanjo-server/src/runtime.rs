@@ -120,6 +120,27 @@ pub(crate) fn spawn_rescan(state: &AppState) -> Option<JoinHandle<()>> {
     Some(tokio::spawn(import(state.clone(), true)))
 }
 
+/// Reads the titles of transcripts imported while titles were off (see
+/// `Ingestor::refresh_titles`) and tells open pages to refetch, also when a
+/// pass that held the lock first did the reading.
+pub(crate) fn spawn_title_refresh(state: &AppState) {
+    if stopping(&state.inner) {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let refreshed = blocking(&state, "session title refresh", |inner| match &inner.ingestor {
+            Some(ing) => ing.refresh_titles().map(Some),
+            None => Ok(None),
+        })
+        .await
+        .flatten();
+        if let Some(sessions) = refreshed {
+            state.publish(LiveEvent::Usage { requests: 0, cost_usd: 0.0, sessions });
+        }
+    });
+}
+
 async fn import(state: AppState, from_scratch: bool) {
     let done = blocking(&state, "transcript import", move |inner| {
         let Some(ing) = inner.ingestor.clone() else { return Ok(None) };

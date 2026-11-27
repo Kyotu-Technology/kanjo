@@ -6,6 +6,7 @@
   import { fmt, t, tn } from '../lib/i18n/index.svelte';
   import { href } from '../lib/router';
   import { api, describeError } from '../lib/stores/app.svelte';
+  import { untitled } from '../lib/session-title';
   import { usePageExport } from '../lib/shell/exports.svelte';
   import { router } from '../lib/stores/router.svelte';
   import Answer from '../lib/ui/Answer.svelte';
@@ -47,7 +48,7 @@
 </script>
 
 <p class="back"><a href={href('/sessions')}><Icon name="chevron_left" size={16} />{t('pages.session.back')}</a></p>
-<PageHeader title={s ? (s.title ?? t('dashboard.sessions.untitled')) : t('pages.session.title')} {lede}>
+<PageHeader title={s ? (s.title ?? untitled()) : t('pages.session.title')} {lede}>
   {#snippet meta()}
     {#if s}
       {#if s.is_active}<span class="state live"><span class="pulse"></span>{t('pages.session.running')}</span>

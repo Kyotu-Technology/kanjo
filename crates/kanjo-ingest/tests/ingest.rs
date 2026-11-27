@@ -260,6 +260,90 @@ fn titles_are_stored_only_when_enabled() {
     assert_eq!(title(), Some("Invented title".into()));
 }
 
+fn title_record(kind: &str, session: &str, title: &str) -> String {
+    let field = if kind == "custom-title" { "customTitle" } else { "aiTitle" };
+    format!("{{\"type\":\"{kind}\",\"{field}\":\"{title}\",\"sessionId\":\"{session}\"}}\n")
+}
+
+#[test]
+fn turning_titles_on_reads_the_titles_of_transcripts_imported_while_they_were_off() {
+    let e = env();
+    let file = e.project_dir().join(format!("{A}.jsonl"));
+    e.append(&file, &title_record("custom-title", B, "Invented chosen title"));
+    e.ing.backfill(&|_| {}).unwrap();
+    let titles = || e.q::<i64>("SELECT count(*) FROM sessions WHERE title IS NOT NULL");
+    let requests: i64 = e.q("SELECT count(*) FROM requests");
+    assert_eq!(titles(), 0);
+    e.ing.set_store_titles(true);
+    let changed = e.ing.refresh_titles().unwrap();
+    assert_eq!(changed, vec![A.to_string(), B.to_string()]);
+    assert_eq!(e.q::<String>(&format!("SELECT title FROM sessions WHERE id = '{A}'")), "Refactor the invented checkout");
+    assert_eq!(e.q::<String>(&format!("SELECT title || title_user FROM sessions WHERE id = '{B}'")), "Invented chosen title1");
+    assert_eq!(e.q::<i64>("SELECT count(*) FROM requests"), requests, "the title rescan stores no requests");
+    assert!(e.ing.refresh_titles().unwrap().is_empty(), "the rescan runs once per switch");
+    e.ing.scan().unwrap();
+    assert_eq!(titles(), 2);
+}
+
+#[test]
+fn the_title_rescan_also_runs_once_on_a_database_that_had_titles_on_before() {
+    let e = env();
+    e.ing.set_store_titles(true);
+    e.ing.backfill(&|_| {}).unwrap();
+    e.store
+        .write(|tx| {
+            tx.execute("UPDATE sessions SET title = NULL", [])?;
+            tx.execute("DELETE FROM settings WHERE key = 'titles:rescanned'", [])?;
+            Ok(())
+        })
+        .unwrap();
+    let mut s = kanjo_core::settings::Settings::load(&e.store).unwrap();
+    s.privacy.session_titles = true;
+    s.save(&e.store).unwrap();
+    let again = Ingestor::new(e.store.clone(), e.paths.clone()).unwrap();
+    again.scan().unwrap();
+    assert_eq!(e.q::<String>(&format!("SELECT title FROM sessions WHERE id = '{A}'")), "Refactor the invented checkout");
+}
+
+#[test]
+fn a_title_the_user_chose_wins_over_ai_titles() {
+    let e = env();
+    e.ing.set_store_titles(true);
+    e.ing.backfill(&|_| {}).unwrap();
+    let file = e.project_dir().join(format!("{A}.jsonl"));
+    let title = || e.q::<String>(&format!("SELECT title || '/' || title_user FROM sessions WHERE id = '{A}'"));
+    assert_eq!(title(), "Refactor the invented checkout/0");
+    e.append(&file, &title_record("custom-title", A, "Invented chosen"));
+    e.ing.scan().unwrap();
+    assert_eq!(title(), "Invented chosen/1");
+    e.append(&file, &title_record("ai-title", A, "Invented later"));
+    e.ing.scan().unwrap();
+    assert_eq!(title(), "Invented chosen/1", "a later ai-title does not replace it");
+    e.append(&file, &format!("{}{}", title_record("custom-title", A, "Invented renamed"), title_record("ai-title", A, "Invented again")));
+    e.append(&file, &title_record("custom-title", A, "  "));
+    e.ing.scan().unwrap();
+    assert_eq!(title(), "Invented renamed/1", "the newest chosen title wins, an empty one is ignored");
+}
+
+#[test]
+fn a_statusline_session_name_is_the_users_title() {
+    let e = env();
+    e.ing.set_store_titles(true);
+    e.ing.backfill(&|_| {}).unwrap();
+    let ts = now_ms();
+    let status = kanjo_core::statusline::StatuslineRecord {
+        ts,
+        session_id: A.into(),
+        session_name: Some("Invented name".into()),
+        ..Default::default()
+    };
+    spool::append(&e.paths.spool_dir(), ts, &SpoolRecord::Statusline(status)).unwrap();
+    e.ing.drain_spool().unwrap();
+    e.append(&e.project_dir().join(format!("{A}.jsonl")), &title_record("ai-title", A, "Invented later"));
+    e.ing.scan().unwrap();
+    assert_eq!(e.q::<String>(&format!("SELECT title FROM sessions WHERE id = '{A}'")), "Invented name");
+}
+
 fn statusline(session: &str, ts: i64, name: &str, miss_at: i64) -> SpoolRecord {
     SpoolRecord::Statusline(StatuslineRecord {
         ts,

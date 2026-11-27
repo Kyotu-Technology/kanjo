@@ -96,7 +96,7 @@ fn jobs(paths: &Paths) -> Vec<Job> {
 pub fn parse_only(paths: &Paths) -> ParseStats {
     parallel(&jobs(paths), |job| {
         let mut refs = QueryRefs::default();
-        match pipeline::parse_job(job, &mut refs, false) {
+        match pipeline::parse_job(job, &mut refs, false, record::process_line) {
             Ok(p) => ParseStats {
                 files: 1,
                 bytes: p.bytes,
@@ -146,7 +146,7 @@ pub fn verify_scanner(paths: &Paths) -> ParseStats {
             match record::kind_of(line) {
                 Kind::Known(k) => {
                     *st.known_types.entry(k).or_default() += 1;
-                    if matches!(k, "ai-title" | "session-owner" | "api-request" | "tools-used") {
+                    if record::META.contains(&k) {
                         if let Some(s) = &scanned {
                             let sig = toplevel::signature(s.keys.iter().copied());
                             *st.meta_signatures.entry(format!("{k} {sig}")).or_default() += 1;

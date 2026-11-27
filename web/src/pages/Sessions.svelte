@@ -27,6 +27,7 @@
   import Skeleton from '../lib/ui/Skeleton.svelte';
   import Tabs from '../lib/ui/Tabs.svelte';
   import Turns from './sessions/Turns.svelte';
+  import { titlesOff, untitled } from '../lib/session-title';
 
   const PAGE = 25;
   const SORTS: Record<string, string> = { cost: 'cost', last: 'recent', tokens: 'tokens', duration: 'duration' };
@@ -136,6 +137,14 @@
   {/snippet}
 </PageHeader>
 
+{#if titlesOff()}
+  <div class="banner">
+    <Banner icon="lock" title={t('pages.sessions.titles_off_title')} body={t('pages.sessions.titles_off_body')}>
+      {#snippet action()}<Button href={href('/settings', { section: 'privacy' })} size="sm">{t('pages.sessions.titles_off_action')}</Button>{/snippet}
+    </Banner>
+  </div>
+{/if}
+
 <div class="tabs">
   <Tabs
     label={t('pages.sessions.tabs')}
@@ -191,7 +200,7 @@
         <li>
           <a href={open(r)}>
             <span class="pulse"></span>
-            <span class="rt">{r.title ?? t('dashboard.sessions.untitled')}</span>
+            <span class="rt">{r.title ?? untitled()}</span>
             <span class="rp">{r.project}</span>
             <Money usd={r.usage.cost_usd} confidence="lower_bound" size="sm" badge="seal" />
           </a>
@@ -207,7 +216,7 @@
           <span class="first">
             {#if s.is_active}<span class="live" title={t('pages.sessions.active_help')}><span class="pulse"></span><span class="sr-only">{t('pages.sessions.active')}</span></span>{/if}
             <span>
-              <a class="title" href={open(s)} onclick={(e) => e.stopPropagation()}>{s.title ?? t('dashboard.sessions.untitled')}</a>
+              <a class="title" href={open(s)} onclick={(e) => e.stopPropagation()}>{s.title ?? untitled()}</a>
               <span class="sub">
                 {#if s.is_active}<span class="run">{t('pages.sessions.active')}</span>{/if}{s.project}{#if s.git_branch}, {s.git_branch}{/if}
               </span>
@@ -250,6 +259,9 @@
   }
   .tabs {
     margin: calc(-1 * var(--sp-2)) 0 var(--sp-5);
+  }
+  .banner {
+    margin-bottom: var(--sp-5);
   }
   .gap {
     height: var(--sp-5);

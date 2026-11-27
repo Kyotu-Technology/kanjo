@@ -83,7 +83,9 @@ pub(crate) fn plan(found: Vec<Found>, cursors: &HashMap<String, Cursor>) -> Vec<
         .collect()
 }
 
-pub(crate) fn parse_job(job: &Job, refs: &mut QueryRefs, titles: bool) -> Result<Parsed> {
+pub(crate) type LineFn = fn(&[u8], &mut FileCtx, &mut Chunk);
+
+pub(crate) fn parse_job(job: &Job, refs: &mut QueryRefs, titles: bool, line: LineFn) -> Result<Parsed> {
     let subagent = job.target.kind == FileKind::Subagent;
     let mut ctx = FileCtx {
         subagent,
@@ -110,7 +112,7 @@ pub(crate) fn parse_job(job: &Job, refs: &mut QueryRefs, titles: bool) -> Result
             }
             ctx.offset = offset;
             offset += n as u64;
-            record::process_line(&buf[..n - 1], &mut ctx, &mut chunk);
+            line(&buf[..n - 1], &mut ctx, &mut chunk);
             if buf.capacity() > 1 << 24 {
                 buf = Vec::with_capacity(1 << 16);
             }
@@ -150,7 +152,8 @@ struct Writer<'a> {
 /// Session metadata read before the session's first request was stored.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PendingMeta {
-    pub(crate) title: Option<String>,
+    /// Title and whether the user chose it.
+    pub(crate) title: Option<(String, bool)>,
     account: Option<String>,
 }
 
@@ -303,8 +306,9 @@ impl<'a> Writer<'a> {
     /// session does not get back the title of the purged conversation.
     fn apply_meta(&mut self, tx: &Connection, p: &Parsed, project_id: Option<i64>, now: i64) -> Result<()> {
         if self.titles {
-            for (session, title, at) in &p.chunk.titles {
-                let at = match *at {
+            for t in &p.chunk.titles {
+                let session = &t.session_id;
+                let at = match t.at {
                     0 => p.chunk.rows.iter().filter(|r| &r.session_id == session).map(|r| r.ts).min().unwrap_or(now),
                     at => at,
                 };
@@ -314,7 +318,10 @@ impl<'a> Writer<'a> {
                     }
                     continue;
                 }
-                self.pending.entry(session.clone()).or_default().title = Some(title.clone());
+                let meta = self.pending.entry(session.clone()).or_default();
+                if t.by_user || !meta.title.as_ref().is_some_and(|(_, user)| *user) {
+                    meta.title = Some((t.title.clone(), t.by_user));
+                }
             }
         }
         for (session, account) in &p.chunk.owners {
@@ -327,7 +334,7 @@ impl<'a> Writer<'a> {
             .chunk
             .titles
             .iter()
-            .map(|(s, _, _)| s.as_str())
+            .map(|t| t.session_id.as_str())
             .chain(p.chunk.owners.iter().map(|(s, _)| s.as_str()))
             .chain(p.chunk.rows.iter().map(|r| r.session_id.as_str()))
             .collect();
@@ -340,8 +347,8 @@ impl<'a> Writer<'a> {
                 continue;
             }
             let Some(meta) = self.pending.remove(session) else { continue };
-            if let (Some(title), true) = (meta.title, self.titles) {
-                kanjo_core::store::write::set_session_title(tx, session, Some(title.as_str()))?;
+            if let (Some((title, by_user)), true) = (meta.title, self.titles) {
+                write::set_session_title(tx, session, &title, by_user)?;
             }
             if let Some(account) = meta.account {
                 kanjo_core::store::write::set_session_account(tx, session, account.as_str())?;
@@ -370,6 +377,7 @@ impl Ingestor {
     pub(crate) fn run(&self, mut jobs: Vec<Job>, progress: Progress) -> Result<ScanReport> {
         jobs.sort_by_key(|j| std::cmp::Reverse(j.size.saturating_sub(j.start)));
         self.clear_titles_if_off();
+        self.rescan_titles_if_needed();
         let priced = self.priced();
         let stamp = priced.0.clone();
         let titles = self.titles_on();
@@ -387,7 +395,7 @@ impl Ingestor {
                     while !abort.load(Ordering::Relaxed) {
                         let Some(job) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
                         let mut refs = self.take_refs(&job.target.path, job.start == 0);
-                        let parsed = parse_job(job, &mut refs, titles);
+                        let parsed = parse_job(job, &mut refs, titles, record::process_line);
                         self.put_refs(&job.target.path, refs, job.mtime);
                         if tx.send((job.clone(), parsed)).is_err() {
                             break;

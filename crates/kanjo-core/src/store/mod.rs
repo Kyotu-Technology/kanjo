@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 
 pub mod write;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("schema.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("schema.sql")), (2, include_str!("migration_2.sql"))];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;
 
@@ -304,6 +304,31 @@ mod tests {
         let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
         assert!(parts[0] > 3 || (parts[0] == 3 && parts[1] >= 54), "SQLite {version} is affected by RUSTSEC-2026-0459");
         assert!(!cipher.is_empty(), "SQLCipher is not linked");
+    }
+
+    #[test]
+    fn migration_2_adds_the_user_title_flag_and_keeps_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kanjo.db");
+        {
+            let key = DbKey::from_hex(KEY).unwrap();
+            let conn = connect(&path, Some(&key), false).unwrap();
+            conn.execute_batch(MIGRATIONS[0].1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute_batch(
+                "INSERT INTO projects (id, key, name, alias, first_seen, last_seen) VALUES (1, 'p', 'p', 'a', 0, 0);
+                 INSERT INTO sessions (id, project_id, title, started_at, last_at) VALUES ('s1', 1, 'Invented', 0, 0);",
+            )
+            .unwrap();
+        }
+        let backups = dir.path().join("backups");
+        let store = Store::open(&path, Some(DbKey::from_hex(KEY).unwrap()), Some(&backups)).unwrap();
+        assert_eq!(store.schema_version().unwrap(), 2);
+        let (title, user): (String, i64) = store
+            .read(|c| Ok(c.query_row("SELECT title, title_user FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?)))?))
+            .unwrap();
+        assert_eq!((title.as_str(), user), ("Invented", 0));
+        assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1, "a copy is written before the migration");
     }
 
     #[test]

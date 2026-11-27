@@ -3,6 +3,7 @@
   import { modelColor, modelLabel, modelTitle } from '../../lib/charts/series';
   import { fmt, t } from '../../lib/i18n/index.svelte';
   import { href } from '../../lib/router';
+  import { untitled } from '../../lib/session-title';
   import { navigate } from '../../lib/stores/router.svelte';
   import Card from '../../lib/ui/Card.svelte';
   import ConfidenceBadge from '../../lib/ui/ConfidenceBadge.svelte';
@@ -46,7 +47,7 @@
     >
       {#snippet cell(s, col)}
         {#if col.key === 'session'}
-          <a class="title" href={href(`/sessions/${encodeURIComponent(s.id)}`)} onclick={(e) => e.stopPropagation()}>{s.title ?? t('dashboard.sessions.untitled')}</a>
+          <a class="title" href={href(`/sessions/${encodeURIComponent(s.id)}`)} onclick={(e) => e.stopPropagation()}>{s.title ?? untitled()}</a>
           <span class="sub">{s.project}{#if s.git_branch}, {s.git_branch}{/if}</span>
         {:else if col.key === 'model'}
           {#if s.main_model}<span class="model" title={modelTitle(s.main_model)}><span class="key" style="background:{modelColor(s.main_model)}"></span>{modelLabel(s.main_model)}</span>{/if}

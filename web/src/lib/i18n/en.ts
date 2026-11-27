@@ -259,6 +259,7 @@ const en = {
       cost: 'Cost',
       context: 'Context used',
       untitled: 'Untitled session',
+      untitled_off: 'Untitled: titles are off',
       all: 'All sessions',
     },
     alerts: {
@@ -561,6 +562,9 @@ const en = {
       title: 'Sessions',
       lede: 'Every Claude Code session, with what it cost and how it used the cache.',
       search: 'Filter by project, branch or title',
+      titles_off_title: 'Session titles are off',
+      titles_off_body: 'Kanjo stores no session titles until you turn them on. Turned on, titles are read for sessions already imported too.',
+      titles_off_action: 'Change it in Settings',
       count: plural({ one: '{count} session', other: '{count} sessions' }),
       active: 'Running',
       active_help: 'Had activity in the last 10 minutes.',

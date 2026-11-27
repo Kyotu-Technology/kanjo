@@ -36,7 +36,6 @@ pub(crate) const OBSERVED_NOISE: &[&str] = &[
     "bridge-session",
     "cost-state",
     "agent-name",
-    "custom-title",
     "pr-link",
     "derived-from",
     "relocated",
@@ -48,7 +47,10 @@ pub(crate) const OBSERVED_NOISE: &[&str] = &[
     "fork-context-ref",
 ];
 
-pub(crate) const HANDLED: &[&str] = &["assistant", "ai-title", "session-owner", "api-request", "tools-used"];
+pub(crate) const HANDLED: &[&str] = &["assistant", "ai-title", "custom-title", "session-owner", "api-request", "tools-used"];
+
+/// Record types that carry session metadata, handled by `meta`.
+pub(crate) const META: &[&str] = &["ai-title", "custom-title", "session-owner", "api-request", "tools-used"];
 
 pub(crate) fn known(kind: &[u8]) -> Option<&'static str> {
     NOISE.iter().chain(OBSERVED_NOISE).chain(HANDLED).copied().find(|k| k.as_bytes() == kind)
@@ -439,6 +441,8 @@ struct MetaRecord<'a> {
     #[serde(borrow, default)]
     ai_title: Str<'a>,
     #[serde(borrow, default)]
+    custom_title: Str<'a>,
+    #[serde(borrow, default)]
     account_uuid: Str<'a>,
     #[serde(borrow, default)]
     id: Str<'a>,
@@ -497,6 +501,17 @@ pub(crate) struct FileCtx<'r> {
     pub last_ts: i64,
 }
 
+/// An `ai-title` or `custom-title` record.
+#[derive(Debug, Clone)]
+pub(crate) struct TitleSeen {
+    pub session_id: String,
+    pub title: String,
+    /// Time of the last timestamped record before it, 0 when none.
+    pub at: i64,
+    /// Chosen by the user with `/rename` (`custom-title`), not generated.
+    pub by_user: bool,
+}
+
 /// A `tools-used` record. These carry no timestamp, so they are ordered by
 /// their position in the session's main transcript.
 pub(crate) struct ToolsSeen {
@@ -520,8 +535,9 @@ pub(crate) struct Chunk {
     pub rows: Vec<RequestRow>,
     index: HashMap<String, usize>,
     pub cwd: Option<String>,
-    /// Session, title, and the time of the last timestamped record before it (0 when none).
-    pub titles: Vec<(String, String, i64)>,
+    pub titles: Vec<TitleSeen>,
+    /// Earliest assistant timestamp seen by `title_line` (0 when none).
+    pub first_ts: i64,
     pub owners: Vec<(String, String)>,
     pub tools: Vec<ToolsSeen>,
     pub quarantine: Vec<Quarantined>,
@@ -579,7 +595,7 @@ pub(crate) fn process_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
     }
     match kind_of(line) {
         Kind::Known("assistant") => assistant(line, ctx, out),
-        Kind::Known(k @ ("ai-title" | "session-owner" | "api-request" | "tools-used")) => meta(k, line, ctx, out),
+        Kind::Known(k) if META.contains(&k) => meta(k, line, ctx, out),
         Kind::Known(_) => {}
         Kind::Unknown { kind, signature, version } => {
             let reason = if kind == "<none>" { "record without type" } else { "unknown record type" };
@@ -591,6 +607,51 @@ pub(crate) fn process_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
             reason: "malformed line",
             version: None,
         }),
+    }
+}
+
+#[derive(Deserialize)]
+struct Stamp<'a> {
+    #[serde(borrow, default)]
+    timestamp: Str<'a>,
+    #[serde(borrow, default)]
+    message: Option<StampMessage<'a>>,
+}
+
+#[derive(Deserialize)]
+struct StampMessage<'a> {
+    #[serde(borrow, default)]
+    model: Str<'a>,
+    #[serde(default)]
+    usage: Option<IgnoredAny>,
+}
+
+/// Title-only reading of a line: title records, and the timestamps of the
+/// records `process_line` takes them from, so each title gets the same time.
+pub(crate) fn title_line(line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    match kind_of(line) {
+        Kind::Known(k @ ("ai-title" | "custom-title")) => meta(k, line, ctx, out),
+        Kind::Known("assistant") => {
+            let usage_ts = serde_json::from_slice::<Stamp>(line).ok().and_then(|r| {
+                let m = r.message?;
+                m.usage?;
+                (m.model.get()? != "<synthetic>").then_some(())?;
+                r.timestamp.get().and_then(parse_ts)
+            });
+            if let Some(ts) = usage_ts {
+                ctx.last_ts = ctx.last_ts.max(ts);
+                if out.first_ts == 0 || ts < out.first_ts {
+                    out.first_ts = ts;
+                }
+            }
+        }
+        Kind::Known(k) if META.contains(&k) => {
+            if let Some(ts) = serde_json::from_slice::<Stamp>(line).ok().and_then(|r| r.timestamp.get().and_then(parse_ts)) {
+                ctx.last_ts = ctx.last_ts.max(ts);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -730,11 +791,11 @@ fn meta(kind: &'static str, line: &[u8], ctx: &mut FileCtx, out: &mut Chunk) {
     }
     let session = || rec.session_id.get().map(str::to_string).unwrap_or_else(|| ctx.session_id.clone());
     match kind {
-        "ai-title" => {
-            if ctx.titles {
-                if let Some(title) = rec.ai_title.get() {
-                    out.titles.push((session(), title.to_string(), ctx.last_ts));
-                }
+        "ai-title" | "custom-title" => {
+            let by_user = kind == "custom-title";
+            let title = if by_user { rec.custom_title.get() } else { rec.ai_title.get() };
+            if let (true, Some(title)) = (ctx.titles, title.map(str::trim).filter(|t| !t.is_empty())) {
+                out.titles.push(TitleSeen { session_id: session(), title: title.to_string(), at: ctx.last_ts, by_user });
             }
         }
         "session-owner" => {
