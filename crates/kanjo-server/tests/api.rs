@@ -878,7 +878,9 @@ async fn turning_session_titles_on_fills_titles_of_sessions_already_imported() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(list().await.iter().all(|s| s.title.is_none()), "titles are off by default");
+    let imported = list().await;
+    assert!(!imported.is_empty(), "the import finished before titles are turned on");
+    assert!(imported.iter().all(|s| s.title.is_none()), "titles are off by default");
 
     let mut s: Settings = fx.get("/api/v1/settings").await;
     s.privacy.session_titles = true;

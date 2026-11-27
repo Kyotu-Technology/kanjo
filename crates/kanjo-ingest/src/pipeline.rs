@@ -377,6 +377,7 @@ impl Ingestor {
     pub(crate) fn run(&self, mut jobs: Vec<Job>, progress: Progress) -> Result<ScanReport> {
         jobs.sort_by_key(|j| std::cmp::Reverse(j.size.saturating_sub(j.start)));
         self.clear_titles_if_off();
+        self.rescan_titles_if_needed();
         let priced = self.priced();
         let stamp = priced.0.clone();
         let titles = self.titles_on();
@@ -455,7 +456,6 @@ impl Ingestor {
         pending.extend(shared.drain());
         *shared = pending;
         drop(shared);
-        self.rescan_titles_if_needed();
         self.clear_titles_if_off();
         outcome.map(|_| report)
     }
