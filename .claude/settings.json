@@ -25,6 +25,7 @@
       "Bash(gh issue edit * --add-label in-progress)",
       "Bash(gh issue edit * --remove-label in-progress)",
       "Bash(gh issue edit * --remove-label in-progress --add-label blocked)",
+      "Bash(gh issue edit * --add-label question)",
       "Bash(gh issue edit * --remove-label ready --add-label question)",
       "Bash(gh issue edit * --remove-label question)",
       "Bash(gh pr create *)",
