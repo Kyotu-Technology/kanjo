@@ -62,7 +62,7 @@ After a merge, check that the issue closed, remove the label (`gh issue edit <n>
 
 ## Several issues
 
-Sort the issues that passed the gate into two kinds. One topic in several places gets one builder and one pull request with a `Closes` line for each issue. Independent tasks get separate pull requests, built in parallel in their own worktrees and branches and merged one after another. A pull request that conflicts after an earlier merge gets `origin/main` merged into its branch, not a rebase, and is landed again; `CHANGELOG.md` is the usual conflict.
+Sort the issues that passed the gate into two kinds. One topic in several places gets one builder and one pull request with a `Closes` line for each issue. Independent tasks get separate pull requests, built in parallel in their own worktrees and branches and merged one after another. A pull request that conflicts after an earlier merge gets `origin/main` merged into its branch, not a rebase, and is landed again; `CHANGELOG.md` is the usual conflict. Run `land` from the worktree of the pull request's branch, because it compares the pull request with the local `HEAD`.
 
 Similar issues share one plan and one advisor consultation. Ten similar issues are three or four builders with a few issues each plus reviewers, not ten pipelines. One brief file outside the repository holds what every builder needs (the rules that matter here, decisions taken, the skills to use), and agents get its path. A builder returns its branch, the checks it ran with their output and what it could not verify. Model and effort follow the work: design, writing and review need a strong model, running checks and collecting facts do not.
 

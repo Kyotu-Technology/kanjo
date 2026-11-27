@@ -133,6 +133,11 @@ land() {
 	done)
 
 	wait_checks "$pr"
+	# shellcheck disable=SC2016
+	threads=$(gh api graphql -F owner='{owner}' -F name='{repo}' -F number="$pr" \
+		-f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
+		--jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)] | length')
+	[ "$threads" = 0 ] || die "#$pr has $threads unresolved review threads"
 	if [ -n "$kept" ]; then
 		echo "#$pr: checks passed; left for the maintainer because it changes:$kept"
 		exit 3
@@ -146,6 +151,7 @@ land() {
 		tries=$((tries + 1))
 		[ "$tries" -le 12 ] || {
 			disarm "$pr"
+			[ "$(gh pr view "$pr" --json state --jq .state)" = MERGED ] && break
 			die "checks passed but #$pr is not merged; see gh pr view $pr"
 		}
 		sleep 10
