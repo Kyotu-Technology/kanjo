@@ -38,6 +38,7 @@ VERDICT='
   elif ($l | index("ready") | not) then "skip is not labelled ready"
   elif ($l | index("in-progress")) then "skip is in progress"
   elif ($l | index("blocked")) then "skip is blocked"
+  elif ((.body // "") | test("(^|\n)Done when: *[^[:space:]]") | not) then "skip has no \"Done when: ...\" line; triage it"
   elif (["OWNER", "MEMBER", "COLLABORATOR"] | index($a) | not) then "skip was opened outside the project; rewrite it at triage"
   else "ok " + .title
   end,
